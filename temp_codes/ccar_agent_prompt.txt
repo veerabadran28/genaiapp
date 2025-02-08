@@ -1,0 +1,100 @@
+Here is the context and your task:
+
+Context:
+$search_results$
+
+Business Context: Comprehensive Capital Analysis and Review (CCAR) is a regulatory framework introduced by the Federal Reserve in order to assess, regulate, and supervise large banks and financial institutions - collectively referred to in the framework as Bank Holding Companies (BHCs). The core part of the program assesses whether:
+1.	BHCs possess adequate capital
+2.	The capital structure is stable given various stress-test scenarios
+3.	Planned capital distributions, such as dividends and share repurchases, are viable and acceptable in relation to regulatory minimum capital requirements
+
+Level 2 and Level 3 Code Mappings: The following mappings should be used to interpret codes in the data:
+
+Level 2 Codes:
+•	U10000000: Total assets USG
+•	U20000000: Total liabilities USG
+•	U30000000: Total shareholders equity USG
+•	U39999999: Net income (loss) attribute to the parent company
+
+Level 3 Codes:
+•	12000000: Deferred tax assets
+•	U10100000: Cash and cash equivalent USG
+•	U10200000: Cash and cash equivalents segregated for regulatory and other purposes USG
+•	U10300000: Securities purchased under agreements to resell USG
+•	U10400000: Securities borrowed USG
+•	U10500000: Securities received as collateral USG
+•	U10600000: Receivables from brokers dealers and clearing organizations
+•	U10800000: Receivables from customers USG
+•	U10900000: Financial instruments owned at FV USG
+•	U11100000: Credit card loans
+•	U11200000: Mortgage loans
+•	U11300000: Other loans
+•	U11400000: Allowance for loan losses USG
+•	U11500000: Investments in affiliates associates and joint ventures
+•	U11600000: Investments securities USG
+•	U11700000: Accrued interest and dividend receivables USG
+•	U11800000: Other assets USG
+•	20700030: Commercial paper
+•	U20100000: Deposits USG
+•	U20200000: Securities sold under agreements to repurchase USG
+•	U20300000: Securities loaned USG
+•	U20310000: Other Collateralized Financings USG
+•	U20400000: Obligation to return securities received as collateral USG
+•	U20500000: Payables to brokers dealers and clearing organizations
+•	U20700000: Payables to customers USG
+•	U20800000: Financial instruments sold but not yet purchased at FV USG
+•	U21000000: Accrued interest and dividend payables USG
+•	U21200000: Other liabilities USG
+•	U21300000: Subordinated debts USG
+•	U21400000: Borrowings USG
+•	U30100000: Preferred stock
+•	U30200000: Common stock USG
+•	U30300000: Additional paid-in capital USG
+•	U30400000: Accumulated earnings /(deficit) USG
+•	U30500000: Accumulated other comprehensive income /(loss) USG
+•	U30600000: Non-controlling (minority) interest USG
+•	U40000000: Net income (loss) before attribution to noncontrolling interest
+•	U71100000: Net income attributable to noncontrolling interest USG
+
+Task: Based on the provided context and mapping information, please answer the following question:
+$user_query$
+
+Please structure your response as a JSON object with the following format and no other text:
+{{
+"answer": "Provide a detailed, structured and comprehensive answer including definitions, explanations, specific values with currency symbols (in millions), significant changes, trends, and supporting details where available. Use consistent terminology and proper formatting.",
+"chart_data": [
+{
+"header": ["Category", "GroupAttribute", "Value"],
+"rows": [
+["Category1", "Group1", NumericValue1],
+["Category2", "Group2", NumericValue2]
+]
+}
+],
+"chart_type": "bar", # Choose appropriate type based on data characteristics
+"chart_attributes": {
+"xAxis": "Category",
+"yAxis": "Value (in millions)",
+"color": "GroupAttribute",
+"title": "Chart Title"
+}
+}}
+
+Chart Type Guidelines:
+•	Use "bar" or "horizontal_bar" for comparing values across categories
+•	Use "line" for time series data and trends
+•	Use "area" for cumulative values
+•	Use "pie" or "donut" for composition (2-8 categories)
+•	Use "treemap" for hierarchical data
+•	Use "scatter" or "bubble" for correlations
+
+Data Format Requirements:
+1.	Convert all monetary values to millions
+2.	Use proper currency symbols in text (e.g., $, £, €)
+3.	Round numbers to 0-2 decimal places
+4.	Sort data logically (chronologically/alphabetically)
+5.	Use consistent naming conventions
+6.	Include enough context for clear understanding
+
+Citations: Include source references in the answer section using format: [Document Name (Page X)]
+Note: If the answer does not require visualization, omit the chart_data, chart_type, and chart_attributes from the JSON response.
