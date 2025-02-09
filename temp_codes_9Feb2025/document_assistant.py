@@ -1,0 +1,1617 @@
+import streamlit as st
+import boto3
+import pandas as pd
+from typing import Dict, List, Optional, Any
+import os
+from datetime import datetime
+import json
+import io
+from src.services.s3_service import S3Service
+from src.services.knowledge_base_service import KnowledgeBaseService
+from src.services.document_processor import DocumentProcessor
+from src.services.bedrock_service import BedrockService
+from src.services.guardrails_service import GuardrailsService
+from src.utils.chat_history import ChatHistory
+import time
+import base64
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import numpy as np
+
+class DocumentAssistantUI:
+    def __init__(self, common_config: Dict):
+        """Initialize Document Assistant with configuration."""
+        self.config = common_config
+        self.s3_service = S3Service(common_config['s3_config'])
+        self.kb_service = KnowledgeBaseService(common_config['knowledge_base_config'])
+        self.doc_processor = DocumentProcessor(common_config['document_processing'])
+        self.bedrock_service = BedrockService(common_config['model_config'])
+        self.guardrails_service = GuardrailsService(common_config)
+        self._initialize_session_state()
+
+    def _initialize_session_state(self):
+        """Initialize session state variables."""
+        if 'doc_assistant_messages' not in st.session_state:
+            st.session_state.doc_assistant_messages = []
+        if 'current_document' not in st.session_state:
+            st.session_state.current_document = None
+        if 'selected_filters' not in st.session_state:
+            st.session_state.selected_filters = {
+                'bank': None,
+                'year': None,
+                'period': None
+            }
+        if 'folder_structure' not in st.session_state:
+            st.session_state.folder_structure = self._get_folder_structure()
+        if 'file_cache' not in st.session_state:
+            st.session_state.file_cache = {}  # Initialize as an empty dictionary
+        if 'selected_model' not in st.session_state:
+            st.session_state.selected_model = 'Claude-3.5-Sonnet'
+        if 'chart_selections' not in st.session_state:
+            st.session_state.chart_selections = {}
+        if 'ccar_messages' not in st.session_state:
+            st.session_state.ccar_messages = []
+
+    def render(self):
+        """Main render method for Document Assistant."""
+        self._apply_custom_css()
+        
+        if st.session_state.current_view == "documents":
+            self._render_document_selection()
+        elif st.session_state.current_view == "manage_documents":
+            self._render_manage_documents()
+        elif st.session_state.current_view == "explore_documents":
+            self._render_explore_documents()
+        elif st.session_state.current_view == "ccar_agent":
+            self._render_ccar_agent()
+
+    def _render_ccar_agent(self):
+        """Render CCAR Agent interface."""
+        # Header with back button
+        col1, col2, col3 = st.columns([0.01, 10.5, 1])
+        with col2:
+            st.markdown("")
+        with col3:
+            if st.button("← Back", key="ccar_back", use_container_width=True):
+                st.session_state.current_view = "documents"
+                st.rerun()
+
+        # Initialize session states if not exists
+        if "ccar_messages" not in st.session_state:
+            st.session_state.ccar_messages = []
+        if 'last_response_time' not in st.session_state:
+            st.session_state.last_response_time = None
+
+        # Model Selection in Sidebar
+        with st.sidebar:
+            st.markdown("### Model Selection")
+            model_options = {
+                'Claude-3.5-Sonnet': self.config['model_config']['model_id'],
+                'Amazon-Nova-Pro-v1': self.config['model_config']['nova_model_id']
+            }
+            selected_model = st.radio(
+                "Select Model",
+                options=['Claude-3.5-Sonnet', 'Amazon-Nova-Pro-v1'],
+                format_func=lambda x: x.capitalize(),
+                key="ccar_model_select",
+                index=0 if st.session_state.selected_model == 'Claude-3.5-Sonnet' else 1,
+                horizontal=True
+            )
+            
+            if selected_model != st.session_state.selected_model:
+                st.session_state.selected_model = selected_model
+                st.session_state.ccar_messages = []
+                if 'last_response_time' in st.session_state:
+                    del st.session_state.last_response_time
+                st.rerun()
+
+            # Display response time if available
+            if st.session_state.last_response_time is not None:
+                st.markdown("### Response Time")
+                st.info(f"{st.session_state.last_response_time:.2f} seconds")
+
+        # Chat Interface
+        st.markdown('<div class="chat-header">CCAR Agent</div>', unsafe_allow_html=True)
+
+        # Display existing messages
+        for msg_idx, msg in enumerate(st.session_state.ccar_messages):
+            with st.chat_message(msg["role"]):
+                if msg["role"] == "assistant":
+                    try:
+                        response_data = json.loads(msg["content"])
+                        
+                        # Display answer text
+                        if "answer" in response_data:
+                            user_answer = response_data["answer"]
+                            color_class = "assistant-message"
+                            st.markdown(f"<div class='{color_class}'>{user_answer}</div>", unsafe_allow_html=True)
+
+                        # Handle chart data display
+                        if "chart_data" in response_data:
+                            self._handle_ccar_chart_display(response_data, msg_idx)
+
+                    except json.JSONDecodeError:
+                        st.markdown(msg["content"])
+                else:
+                    st.markdown(f"<div class='user-message'>{msg['content']}</div>", unsafe_allow_html=True)
+
+        # Chat input
+        if prompt := st.chat_input("Ask about CCAR documents..."):
+            # Add user message
+            st.session_state.ccar_messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(f"<div class='user-message'>{prompt}</div>", unsafe_allow_html=True)
+
+            # Generate response
+            with st.spinner("Analyzing CCAR documents..."):
+                start_time = time.time()
+                response = self._get_ccar_response(prompt)
+                end_time = time.time()
+                
+                st.session_state.last_response_time = end_time - start_time
+                
+                st.session_state.ccar_messages.append({
+                    "role": "assistant",
+                    "content": response
+                })
+
+                with st.chat_message("assistant"):
+                    try:
+                        response_data = json.loads(response)
+                        
+                        # Display answer
+                        if "answer" in response_data:
+                            st.markdown(f"<div class='assistant-message'>{response_data['answer']}</div>", unsafe_allow_html=True)
+
+                        # Handle chart display
+                        if "chart_data" in response_data:
+                            self._handle_ccar_chart_display(response_data, len(st.session_state.ccar_messages)-1)
+
+                    except json.JSONDecodeError:
+                        st.markdown(response)
+                    
+                st.rerun()
+
+    def _get_ccar_response(self, prompt: str) -> str:
+        """Generate response for CCAR queries."""
+        try:
+            # Load prompt template
+            ccar_prompt_file = self.config['ccar_prompt_file']
+            if not ccar_prompt_file:
+                raise ValueError("CCAR Prompt file path is not configured.")
+
+            # Get response from Knowledge Base service
+            response = self.kb_service.search_ccar_documents(
+                query=prompt,
+                ccar_prompt_file=ccar_prompt_file,
+                chat_history=st.session_state.ccar_messages,
+                use_nova=st.session_state.selected_model == 'Amazon-Nova-Pro-v1'                
+            )
+
+            if not response:
+                return json.dumps({
+                    "answer": "I couldn't find relevant information in the CCAR documents to answer your question.",
+                    "chart_data": []
+                })
+
+            return response
+
+        except Exception as e:
+            error_msg = f"Error processing your question: {str(e)}"
+            return json.dumps({
+                "answer": error_msg,
+                "chart_data": []
+            })
+
+    def _clean_response_text(self, response_data: dict) -> dict:
+        """Clean response text by removing escape characters and formatting properly."""
+        try:
+            if isinstance(response_data, dict) and 'answer' in response_data:
+                # Remove escaped newlines and replace with actual line breaks
+                cleaned_answer = response_data['answer']
+                
+                # Remove explicit \n characters
+                cleaned_answer = cleaned_answer.replace('\\n', '\n')
+                
+                # Remove extra backslashes
+                cleaned_answer = cleaned_answer.replace('\\', '')
+                
+                # Clean up multiple newlines
+                cleaned_answer = '\n'.join(line.strip() for line in cleaned_answer.splitlines() if line.strip())
+                
+                # Update the response
+                response_data['answer'] = cleaned_answer
+                
+            return response_data
+        except Exception as e:
+            print(f"Error cleaning response text: {str(e)}")
+            return response_data
+
+    def _handle_ccar_chart_display(self, response_data: dict, msg_idx: int):
+        """Handle chart display for CCAR responses."""
+        # Clean the response text first
+        response_data = self._clean_response_text(response_data)
+        
+        # Custom CSS for message colors
+        st.markdown(
+            """
+            <style>
+            .user-message {
+                background-color: #d1e7dd;
+                border-radius: 8px;
+                padding: 8px;
+            }
+            .assistant-message {
+                background-color: #e7e7ff;
+                border-radius: 8px;
+                padding: 8px;
+            }
+            .stButton > button {
+                width: 100px !important;
+                min-width: 100px;
+                white-space: nowrap;
+                padding: 0.5rem 1rem;
+                text-align: center;
+                background-color: #E7E7E7 !important;
+                color: black !important;
+                transition: all 0.3s ease;
+                border: none !important;
+            }
+            .stButton > button:hover {
+                background-color: #CCCCCC !important;
+                color: black !important;
+                border: none !important;
+            }
+            /* Primary button styling */
+            .stButton > button[kind="primary"] {
+                background-color: #0051A2 !important;
+                color: white !important;
+                border: none !important;
+            }
+            .stButton > button[kind="primary"]:hover {
+                background-color: #003D82 !important;
+                color: white !important;
+            }
+            .chart-type-label {
+                margin-bottom: 0.0rem !important;
+                padding-bottom: 0 !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )       
+        
+        chart_data = response_data["chart_data"]
+        chart_attrs = response_data.get("chart_attributes", {})
+        
+        for chart_idx, chart in enumerate(chart_data):
+            if "header" in chart and "rows" in chart:
+                try:
+                    # Create DataFrame directly from rows with column names
+                    df = pd.DataFrame(chart["rows"], columns=chart["header"])
+                    
+                    # Show data table
+                    table_label = f"Data Table {chart_idx + 1}" if len(chart_data) > 1 else "Data Table"
+                    with st.expander(table_label):
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns
+                        if not numeric_cols.empty:
+                            # Format only numeric columns
+                            st.dataframe(
+                                df.style.format({col: "{:.2f}" for col in numeric_cols}),
+                                use_container_width=True
+                            )
+                        else:
+                            st.dataframe(df, use_container_width=True)
+                    
+                    st.write("")
+                    
+                    # Chart type selection
+                    available_charts = [
+                        "bar", "horizontal_bar", "line", "area", "scatter",
+                        "pie", "donut", "treemap", "bubble"
+                    ]
+                    
+                    if len(chart_data) > 1:
+                        st.markdown(f'<p class="chart-type-label">Select chart type for dataset {chart_idx + 1}:</p>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<p class="chart-type-label">Select chart type:</p>', unsafe_allow_html=True)
+                    
+                    dataset_key = f"ccar_{msg_idx}_{chart_idx}"
+                    current_selection = st.session_state.chart_selections.get(dataset_key)
+
+                    cols = st.columns(len(available_charts))
+                    for idx, chart_type in enumerate(available_charts):
+                        with cols[idx]:
+                            button_label = chart_type.replace("_", " ").title()
+                            st.markdown('<div style="text-align: center;">', unsafe_allow_html=True)
+                            if st.button(
+                                button_label,
+                                type="secondary" if current_selection != chart_type else "primary",
+                                key=f"ccar_chart_{msg_idx}_{chart_idx}_{chart_type}"
+                            ):
+                                if current_selection == chart_type:
+                                    st.session_state.chart_selections[dataset_key] = None
+                                else:
+                                    self._handle_chart_selection(chart_type, dataset_key)
+                                st.rerun()
+
+                    # Render chart if selected
+                    if current_selection:
+                        try:
+                            # Add unique chart key to chart attributes
+                            chart_attrs['chart_key'] = f"chart_{msg_idx}_{chart_idx}_{current_selection}"
+                            self._render_chart_with_values(df, current_selection, chart_attrs)
+                            st.write("")
+                        except Exception as e:
+                            st.error(f"Error rendering chart: {str(e)}")
+                            print("Debug - DataFrame:", df)
+                            print("Debug - DataFrame info:", df.info())
+
+                except Exception as e:
+                    st.error(f"Error displaying dataset {chart_idx + 1}: {str(e)}")
+                    st.write("Raw chart data:", chart)
+    
+    def _apply_custom_css(self):
+        """Apply custom CSS styling."""
+        st.markdown("""
+            <style>
+            /* Chat Interface Styling */
+            .chat-header {
+                background-color: #0051A2;
+                color: white;
+                padding: 12px 15px;
+                border-radius: 8px 8px 0 0;
+                font-weight: bold;
+                margin-bottom: 0;
+            }
+            
+            .messages-area {
+                flex-grow: 1;
+                overflow-y: auto;
+                padding: 1rem;
+                scroll-behavior: smooth;
+            }
+            
+            .chat-input-area {
+                border-top: 1px solid #ddd;
+                padding: 1rem;
+                background: white;
+            }
+            
+            /* Message Styling */
+            .stChatMessage {
+                max-width: 80%;
+                margin: 0.5rem 0;
+                padding: 0.5rem;
+                border-radius: 8px;
+            }
+            
+            .stChatMessage[data-testid="chat-message-user"] {
+                margin-left: auto;
+                background-color: #E3F2FD;
+                text-align: right;
+            }
+            
+            .stChatMessage[data-testid="chat-message-assistant"] {
+                margin-right: auto;
+                background-color: #F5F5F5;
+                text-align: left;
+            }
+            
+            .citation {
+                font-size: 0.8em;
+                color: #666;
+                font-style: italic;
+                margin-top: 0.5rem;
+            }
+            
+            /* Hide Streamlit elements */
+            .stDeployButton {
+                display: none !important;
+            }
+            
+            [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+                gap: 0rem !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+    def _render_document_selection(self):
+        """Render the document selection view with two main options."""
+        col1, col2, col3 = st.columns([0.01, 10.5, 1])
+        with col2:
+            st.markdown("### Document Assistant")
+        with col3:
+            if st.button("← Back", key="document_back", use_container_width=True):
+                st.session_state.current_view = 'main'
+                st.rerun()
+
+        # Two main options in separate columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+                <div class="item-card">
+                    <h3>📁 Manage Documents</h3>
+                    <p>Upload, organize, and manage your documents</p>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button("Open", key="manage_docs_btn", use_container_width=True):
+                st.session_state.current_view = "manage_documents"
+                st.rerun()
+
+        with col2:
+            st.markdown("""
+                <div class="item-card">
+                    <h3>🔍 Explore Documents</h3>
+                    <p>Search and analyze document contents</p>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button("Open", key="explore_docs_btn", use_container_width=True):
+                st.session_state.current_view = "explore_documents"
+                st.rerun()
+                
+        with col3:
+            st.markdown("""
+                <div class="item-card">
+                    <h3>🔍 CCAR Agent</h3>
+                    <p>Search and analyze document contents</p>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button("Open", key="ccar_agent_btn", use_container_width=True):
+                st.session_state.current_view = "ccar_agent"
+                st.rerun()
+
+    def _render_manage_documents(self):
+        """Render document management interface."""
+        # Header with back button
+        col1, col2, col3 = st.columns([0.01, 10.5, 1])
+        with col2:
+            st.markdown("### Manage Documents")
+        with col3:
+            if st.button("← Back", key="manage_back", use_container_width=True):
+                st.session_state.current_view = "documents"
+                st.rerun()
+
+        # Upload Section
+        #st.markdown("#### Upload New Document")
+        with st.expander("Upload New Document"):
+        
+            # Initialize or get folder structure from session state
+            if 'folder_structure' not in st.session_state:
+                st.session_state.folder_structure = self._get_folder_structure()
+                
+            folder_structure = st.session_state.folder_structure
+
+            # Initialize manage filters if not exists
+            if 'manage_filters' not in st.session_state:
+                st.session_state.manage_filters = {
+                    'bank': None,
+                    'year': None,
+                    'period': None
+                }
+
+            # Initialize upload success flag in session state if not exists
+            if 'upload_success' not in st.session_state:
+                st.session_state.upload_success = False
+
+            # Main container for folder selection and file upload
+            with st.container():
+                # Folder Selection
+                st.markdown("#### Select folder option:")
+                folder_choice = st.radio(
+                    "",
+                    ["Use Existing Folder", "Create New Folder"],
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if folder_choice == "Use Existing Folder":
+                        banks = sorted(folder_structure.keys()) if folder_structure else []
+                        current_bank_index = banks.index(st.session_state.manage_filters['bank']) + 1 if st.session_state.manage_filters['bank'] in banks else 0
+                        selected_bank = st.selectbox(
+                            "Bank",
+                            options=[""] + banks,
+                            help="Select the bank folder",
+                            key="manage_bank",
+                            index=current_bank_index
+                        )
+                        if selected_bank != st.session_state.manage_filters['bank']:
+                            st.session_state.manage_filters['bank'] = selected_bank
+                            st.session_state.manage_filters['year'] = None
+                            st.session_state.manage_filters['period'] = None
+                            st.rerun()
+                    else:
+                        selected_bank = st.text_input("Bank Name", help="Enter new bank name")
+                        if selected_bank and not selected_bank.replace('_', '').isalnum():
+                            st.error("Bank name should only contain letters, numbers, and underscores")
+                            selected_bank = None
+
+                with col2:
+                    if folder_choice == "Use Existing Folder":
+                        years = (sorted(folder_structure[selected_bank].keys()) 
+                                if selected_bank and selected_bank in folder_structure else [])
+                        current_year_index = years.index(st.session_state.manage_filters['year']) + 1 if st.session_state.manage_filters['year'] in years else 0
+                        selected_year = st.selectbox(
+                            "Year",
+                            options=[""] + years,
+                            key="manage_year",
+                            disabled=not selected_bank,
+                            index=current_year_index
+                        )
+                        if selected_year != st.session_state.manage_filters['year']:
+                            st.session_state.manage_filters['year'] = selected_year
+                            st.session_state.manage_filters['period'] = None
+                            st.rerun()
+                    else:
+                        selected_year = st.text_input("Year", help="Enter year (YYYY)")
+                        if selected_year and (not selected_year.isdigit() or len(selected_year) != 4):
+                            st.error("Year should be a 4-digit number")
+                            selected_year = None
+
+                with col3:
+                    if folder_choice == "Use Existing Folder":
+                        periods = (sorted(folder_structure[selected_bank][selected_year].keys())
+                                if selected_bank and selected_year and 
+                                selected_bank in folder_structure and 
+                                selected_year in folder_structure[selected_bank] else [])
+                        current_period_index = periods.index(st.session_state.manage_filters['period']) + 1 if st.session_state.manage_filters['period'] in periods else 0
+                        selected_period = st.selectbox(
+                            "Period",
+                            options=[""] + periods,
+                            key="manage_period",
+                            disabled=not (selected_bank and selected_year),
+                            index=current_period_index
+                        )
+                        if selected_period != st.session_state.manage_filters['period']:
+                            st.session_state.manage_filters['period'] = selected_period
+                    else:
+                        selected_period = st.text_input("Period", help="Enter period name")
+                        if selected_period and not selected_period.replace('_', '').isalnum():
+                            st.error("Period should only contain letters, numbers, and underscores")
+                            selected_period = None
+
+            # Show folder preview and file upload only if folder is selected
+            if all([selected_bank, selected_year, selected_period]):
+                main_folder = self.config['s3_config']['main_folder']
+                st.markdown(
+                    f"""
+                    <div class="folder-preview">
+                        <p>Selected folder path:</p>
+                        <code>/{main_folder}/{selected_bank}/{selected_year}/{selected_period}/</code>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                # Reset file uploader if previous upload was successful
+                if st.session_state.upload_success:
+                    st.session_state.upload_success = False
+                    st.rerun()
+
+                 # File Upload Container
+                with st.container():
+                    uploaded_file = st.file_uploader(
+                        "Drop your document here or click to upload",
+                        type=self._get_supported_formats(),
+                        key=f"file_uploader_{selected_bank}_{selected_year}_{selected_period}"
+                    )
+
+                    if uploaded_file:
+                        st.markdown(
+                            f"""
+                            <div class="file-info">
+                                <p>Selected file: <strong>{uploaded_file.name}</strong></p>
+                                <p>Upload location: <code>/{main_folder}/{selected_bank}/{selected_year}/{selected_period}/{uploaded_file.name}</code></p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                        if st.button("Upload and Process Document", type="primary", use_container_width=True):
+                            # Initialize upload progress
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            try:
+                                # Step 1: Validate file
+                                status_text.text("Validating document...")
+                                progress_bar.progress(0.2)
+                                
+                                validation_results = self.doc_processor.validate_document(uploaded_file, uploaded_file.name)
+                                
+                                if not validation_results['is_valid']:
+                                    progress_bar.empty()
+                                    status_text.empty()
+                                    st.error("\n".join(validation_results['errors']))
+                                    return
+
+                                # Step 2: Upload to S3
+                                status_text.text("Uploading to S3...")
+                                s3_file = io.BytesIO(uploaded_file.getvalue())
+                                s3_file.name = uploaded_file.name
+                                
+                                # Upload file
+                                s3_path = self.s3_service.upload_file(
+                                    s3_file, 
+                                    selected_bank, 
+                                    selected_year, 
+                                    selected_period
+                                )
+                                
+                                # Update progress
+                                progress_bar.progress(1.0)
+                                status_text.empty()
+
+                                # Show success message
+                                st.success(f"✅ Document uploaded successfully!")
+                                
+                                # Set upload success flag
+                                st.session_state.upload_success = True
+                                
+                                # Refresh folder structure
+                                st.session_state.folder_structure = self._get_folder_structure()
+                                
+                                # Add small delay before rerun
+                                time.sleep(1)
+                                st.rerun()
+
+                            except Exception as e:
+                                progress_bar.empty()
+                                status_text.empty()
+                                st.error(f"Error uploading document: {str(e)}")
+                                st.error("Please try again or contact support if the issue persists.")
+                            finally:
+                                # Clean up file objects
+                                if 's3_file' in locals():
+                                    s3_file.close()
+
+    def _display_file_content(self, file_key: str):
+        """Display file content based on type."""
+        try:
+            if file_key.endswith(('.xlsx', '.xls')):
+                self._display_excel_content(file_key)
+            elif file_key.endswith('.pdf'):
+                self._display_pdf_content(file_key)
+            else:
+                st.error("Unsupported file type")
+        except Exception as e:
+            st.error(f"Error displaying file: {str(e)}")   
+
+    def _display_excel_content(self, file_key: str):
+        """Display Excel file content."""
+        try:
+            # Cache or fetch content from S3
+            file_content = st.session_state.file_cache.get(file_key)
+            if not file_content:
+                file_content = self.s3_service.get_document_content_explore(file_key)
+                st.session_state.file_cache[file_key] = file_content
+
+            xl = pd.ExcelFile(io.BytesIO(file_content))
+            sheet_name = st.selectbox("Select Sheet", options=xl.sheet_names)
+            if sheet_name:
+                df = xl.parse(sheet_name=sheet_name)
+                st.dataframe(df, use_container_width=True)
+
+                # Download option
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    label="Download as CSV",
+                    data=csv_data,
+                    file_name=f"{sheet_name}.csv",
+                    mime="text/csv",
+                )
+        except Exception as e:
+            st.error(f"Error reading Excel file: {str(e)}")
+
+    def _display_pdf_content(self, file_key: str):
+        """Display PDF file content."""
+        try:
+            # Fetch or retrieve from cache
+            file_content = st.session_state.file_cache.get(file_key)
+            #print("file_content1")
+            
+            if not file_content:
+                file_content = self.s3_service.get_document_content_explore(file_key)
+                #print("file_content2")
+                st.session_state.file_cache[file_key] = file_content
+
+            # Convert PDF content to Base64 and display in iframe
+            base64_pdf = base64.b64encode(file_content).decode('utf-8')
+            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Error displaying PDF file: {str(e)}")
+            
+    def _render_explore_documents(self):
+        """Render document exploration interface with cascading filters."""
+        self._apply_custom_css()
+
+        # Header with back button
+        col1, col2, col3 = st.columns([0.01, 10.5, 1])
+        with col2:
+            st.markdown("### Explore Documents")
+        with col3:
+            if st.button("← Back", key="explore_back", use_container_width=True):
+                st.session_state.current_view = "documents"
+                st.rerun()
+
+        # Initialize or get folder structure from session state
+        if 'folder_structure' not in st.session_state:
+            st.session_state.folder_structure = self._get_folder_structure()
+
+        folder_structure = st.session_state.folder_structure        
+
+        # Initialize filters in session state
+        if 'explore_filters' not in st.session_state:
+            st.session_state.explore_filters = {
+                'bank': None,
+                'year': None,
+                'period': None,
+                'document': None
+            }
+
+        # Function to reset chat messages
+        def reset_chat_messages():
+            if "doc_assistant_messages" in st.session_state:
+                st.session_state.doc_assistant_messages = []
+
+        # Document Selection Filters in Sidebar
+        with st.sidebar:
+            st.markdown("### Model Selection")
+            model_options = {
+                'Claude-3.5-Sonnet': self.config['model_config']['model_id'],
+                'Amazon-Nova-Pro-v1': self.config['model_config']['nova_model_id']
+            }
+            selected_model = st.radio(
+                "Select Model",
+                options=['Claude-3.5-Sonnet', 'Amazon-Nova-Pro-v1'],
+                format_func=lambda x: x.capitalize(),
+                key="model_select",
+                index=0 if st.session_state.selected_model == 'Claude-3.5-Sonnet' else 1,
+                horizontal=True
+            )
+            if selected_model != st.session_state.selected_model:
+                st.session_state.selected_model = selected_model
+                # Clear chat messages when model changes
+                st.session_state.doc_assistant_messages = []
+                # Clear response time
+                if 'last_response_time' in st.session_state:
+                    del st.session_state.last_response_time
+                # Reset explore filters
+                st.session_state.explore_filters = {
+                    'bank': None,
+                    'year': None,
+                    'period': None,
+                    'document': None
+                }
+                st.rerun()
+
+            st.markdown("---")
+            
+            st.markdown("### Document Filters")
+
+            # Bank Selection
+            banks = sorted(folder_structure.keys()) if folder_structure else []
+            banks_capitalized = [bank.capitalize() for bank in banks]
+            #current_bank_index = banks_capitalized.index(st.session_state.explore_filters['bank']) + 1 if st.session_state.explore_filters['bank'] in banks_capitalized else 0
+            selectbox_key = f"explore_bank_{st.session_state.selected_model}"
+            selected_bank = st.selectbox(
+                "Select Bank",
+                options=[""] + banks_capitalized,
+                key=selectbox_key,
+                index=0
+            )
+            selected_bank_actual = banks[banks_capitalized.index(selected_bank)] if selected_bank else None
+            if selected_bank_actual != st.session_state.explore_filters['bank']:
+                st.session_state.explore_filters['bank'] = selected_bank_actual
+                st.session_state.explore_filters['year'] = None
+                st.session_state.explore_filters['period'] = None
+                st.session_state.explore_filters['document'] = None
+                reset_chat_messages()
+                if 'last_response_time' in st.session_state:
+                    del st.session_state.last_response_time
+                st.rerun()
+
+            # Year Selection
+            years = (sorted(folder_structure[selected_bank_actual].keys()) 
+                    if selected_bank_actual and selected_bank_actual in folder_structure else [])
+            current_year_index = years.index(st.session_state.explore_filters['year']) + 1 if st.session_state.explore_filters['year'] in years else 0
+            selected_year = st.selectbox(
+                "Select Year",
+                options=[""] + years,
+                key="explore_year",
+                disabled=not selected_bank_actual,
+                index=current_year_index
+            )
+            if selected_year != st.session_state.explore_filters['year']:
+                st.session_state.explore_filters['year'] = selected_year
+                st.session_state.explore_filters['period'] = None
+                st.session_state.explore_filters['document'] = None
+                reset_chat_messages()
+                if 'last_response_time' in st.session_state:
+                    del st.session_state.last_response_time
+                st.rerun()
+
+            # Period Selection
+            periods = (sorted(folder_structure[selected_bank_actual][selected_year].keys())
+                    if selected_bank_actual and selected_year and 
+                    selected_bank_actual in folder_structure and 
+                    selected_year in folder_structure[selected_bank_actual] else [])
+            periods_capitalized = [period.capitalize() for period in periods]
+            current_period_index = periods_capitalized.index(st.session_state.explore_filters['period']) + 1 if st.session_state.explore_filters['period'] in periods_capitalized else 0
+            selected_period = st.selectbox(
+                "Select Period",
+                options=[""] + periods_capitalized,
+                key="explore_period",
+                disabled=not (selected_bank_actual and selected_year),
+                index=current_period_index
+            )
+            selected_period_actual = periods[periods_capitalized.index(selected_period)] if selected_period else None
+            if selected_period_actual != st.session_state.explore_filters['period']:
+                st.session_state.explore_filters['period'] = selected_period_actual
+                st.session_state.explore_filters['document'] = None
+                reset_chat_messages()
+                if 'last_response_time' in st.session_state:
+                    del st.session_state.last_response_time
+                st.rerun()
+
+            # Document Selection (also in sidebar)
+            if all([selected_bank_actual, selected_year, selected_period_actual]):
+                documents = folder_structure[selected_bank_actual][selected_year][selected_period_actual]
+                if documents:
+                    selected_doc = st.selectbox(
+                        "Select Document",
+                        options=[""] + documents,
+                        format_func=lambda x: os.path.basename(x) if x else "Select a document",
+                        key="explore_document"
+                    )
+                    if selected_doc != st.session_state.explore_filters['document']:
+                        st.session_state.explore_filters['document'] = selected_doc
+                        reset_chat_messages()
+                        st.rerun()
+                else:
+                    st.info("No documents found in the selected folder")
+
+        # Main content area
+        selected_doc = st.session_state.explore_filters.get('document')
+        if selected_doc:
+            st.session_state.current_document = selected_doc
+
+            # Document viewer in expandable section
+            with st.expander("View Document Content", expanded=False):
+                st.write(f"Selected Document: {selected_doc}")
+                self._display_file_content(selected_doc)
+
+            # Chat interface
+            st.markdown('<div class="chat-header">Financial Document Assistant</div>', unsafe_allow_html=True)
+            self._render_chat_interface(selected_doc)
+
+    def _get_folder_structure(self) -> Dict:
+        """Get complete folder structure from S3."""
+        try:
+            folder_structure = {}
+            response = self.s3_service.s3_client.list_objects_v2(
+                Bucket=self.s3_service.bucket,
+                Prefix=f"{self.s3_service.main_folder}/"
+            )
+            
+            for obj in response.get('Contents', []):
+                path_parts = obj['Key'].split('/')
+                if len(path_parts) >= 5 and path_parts[-1]:
+                    bank = path_parts[1]
+                    year = path_parts[2]
+                    period = path_parts[3]
+                    file_path = obj['Key']
+                    
+                    if bank not in folder_structure:
+                        folder_structure[bank] = {}
+                    if year not in folder_structure[bank]:
+                        folder_structure[bank][year] = {}
+                    if period not in folder_structure[bank][year]:
+                        folder_structure[bank][year][period] = []
+                    
+                    folder_structure[bank][year][period].append(file_path)
+            
+            return folder_structure
+        except Exception as e:
+            st.error(f"Error getting folder structure: {str(e)}")
+            return {}
+
+    def create_dynamodb_table():
+        try:
+            dynamodb = boto3.client('dynamodb')
+            
+            table = dynamodb.create_table(
+                TableName='document_chat_history',
+                KeySchema=[
+                    {
+                        'AttributeName': 'chat_id',
+                        'KeyType': 'HASH'  # Partition key
+                    }
+                ],
+                AttributeDefinitions=[
+                    {
+                        'AttributeName': 'chat_id',
+                        'AttributeType': 'S'
+                    }
+                ],
+                BillingMode='PAY_PER_REQUEST'
+            )
+            
+            print("Table created successfully!")
+            
+        except dynamodb.exceptions.ResourceInUseException:
+            print("Table already exists")
+
+    def _render_chart_with_values(self, df: pd.DataFrame, chart_type: str, chart_attrs: dict):
+        """Render chart with dynamic handling of different chart types and attributes."""
+        try:
+            #print("Debug - DataFrame before rendering:", df)
+            #print("Debug - DataFrame info:", df.info())
+            
+            # Remove rows with all NaN values and create a copy
+            df = df.dropna(how='all').copy()
+            
+            # Get column names
+            columns = df.columns.tolist()
+            
+            # Create figure based on chart type
+            if chart_type == "bar":
+                fig = px.bar(
+                    df,
+                    x=columns[0],  # First column (Quarter)
+                    y=columns[2],  # Third column (Value)
+                    color=columns[1],  # Second column (Category)
+                    title=chart_attrs.get('title', ''),
+                    barmode='group',
+                    text=columns[2]  # Value column for labels
+                )
+                fig.update_traces(
+                    texttemplate='%{y:.2f}',
+                    textposition='outside'
+                )
+                    
+            elif chart_type == "line":
+                fig = px.line(
+                    df,
+                    x=columns[0],
+                    y=columns[2],
+                    color=columns[1],
+                    title=chart_attrs.get('title', ''),
+                    markers=True
+                )
+                fig.update_traces(
+                    texttemplate='%{y:.2f}',
+                    textposition='top center'
+                )
+                    
+            elif chart_type == "area":
+                fig = px.area(
+                    df,
+                    x=columns[0],
+                    y=columns[2],
+                    color=columns[1],
+                    title=chart_attrs.get('title', '')
+                )
+                    
+            elif chart_type == "scatter":
+                fig = px.scatter(
+                    df,
+                    x=columns[0],
+                    y=columns[2],
+                    color=columns[1],
+                    title=chart_attrs.get('title', '')
+                )
+                fig.update_traces(
+                    texttemplate='%{y:.2f}',
+                    textposition='top center'
+                )
+                    
+            elif chart_type == "horizontal_bar":
+                fig = px.bar(
+                    df,
+                    y=columns[0],
+                    x=columns[2],
+                    color=columns[1],
+                    title=chart_attrs.get('title', ''),
+                    orientation='h',
+                    barmode='group'
+                )
+                fig.update_traces(
+                    texttemplate='%{x:.2f}',
+                    textposition='outside'
+                )
+            
+            elif chart_type in ["pie", "donut"]:
+                # For each category, create a separate pie chart
+                unique_categories = df[columns[1]].unique()
+                
+                # Create subplots for each category
+                fig = make_subplots(
+                    rows=1, cols=len(unique_categories),
+                    specs=[[{'type': 'pie'}] * len(unique_categories)],
+                    subplot_titles=[f'Category: {cat}' for cat in unique_categories]
+                )
+                
+                for idx, category in enumerate(unique_categories, start=1):
+                    category_data = df[df[columns[1]] == category].copy()
+                    
+                    fig.add_trace(
+                        go.Pie(
+                            labels=category_data[columns[0]],
+                            values=category_data[columns[2]],
+                            hole=0.4 if chart_type == "donut" else 0,
+                            textinfo='label+percent+value',
+                            texttemplate='%{label}<br>%{value:,.2f}<br>(%{percent})',
+                            name=category
+                        ),
+                        row=1, col=idx
+                    )
+                
+            elif chart_type == "treemap":
+                fig = px.treemap(
+                    df,
+                    path=[columns[1], columns[0]],  # Category -> Quarter hierarchy
+                    values=columns[2],
+                    title=chart_attrs.get('title', '')
+                )
+                
+                fig.update_traces(
+                    textinfo='label+value+percent parent',
+                    texttemplate='%{label}<br>%{value:,.2f}<br>(%{percentParent:.1%})'
+                )
+                
+            elif chart_type == "bubble":
+                fig = px.scatter(
+                    df,
+                    x=columns[0],
+                    y=columns[2],
+                    size=columns[2],
+                    color=columns[1],
+                    title=chart_attrs.get('title', ''),
+                    size_max=60
+                )
+                
+                fig.update_traces(
+                    texttemplate='%{y:.2f}',
+                    textposition='top center'
+                )
+
+            # Common layout updates
+            fig.update_layout(
+                width=1200,
+                height=700,
+                template='plotly_white',
+                showlegend=True,
+                legend=dict(
+                    yanchor="top",
+                    y=1.0,
+                    xanchor="left",
+                    x=1.02,
+                    bgcolor="rgba(255, 255, 255, 0.8)",
+                    bordercolor="rgba(0, 0, 0, 0.2)",
+                    borderwidth=1
+                ),
+                margin=dict(l=50, r=120, t=80, b=100)
+            )
+
+            # Update axes except for pie and treemap
+            if chart_type not in ['pie', 'donut', 'treemap']:
+                fig.update_xaxes(
+                    title=chart_attrs.get('xAxis', columns[0]),
+                    tickangle=-45,
+                    title_font=dict(size=14, family='Arial Black'),
+                    tickfont=dict(size=12, family='Arial Black')
+                )
+                
+                fig.update_yaxes(
+                    title=chart_attrs.get('yAxis', columns[2]),
+                    title_font=dict(size=14, family='Arial Black'),
+                    tickfont=dict(size=12, family='Arial Black')
+                )
+
+            # Get unique chart key
+            chart_key = chart_attrs.get('chart_key', f"chart_{hash(str(df.values.tobytes()))}")
+            
+            # Render the chart
+            st.plotly_chart(fig, use_container_width=False, key=chart_key)
+
+        except Exception as e:
+            st.error(f"Error rendering chart: {str(e)}")
+            print("Debug - Error details:", e)
+            print("Debug - DataFrame info:", df.info())
+
+    def _handle_chart_selection(self, chart_type: str, dataset_key: str):
+        """Handle chart selection and update state."""
+        # Initialize selection if not exists
+        if 'chart_selections' not in st.session_state:
+            st.session_state.chart_selections = {}
+        
+        # Update selection
+        st.session_state.chart_selections[dataset_key] = chart_type
+
+    def _render_chat_interface(self, document_path: str):
+        """Render chat interface for document interaction."""
+        # Initialize session states
+        if "doc_assistant_messages" not in st.session_state:
+            st.session_state.doc_assistant_messages = []
+        if "selected_document" not in st.session_state:
+            st.session_state.selected_document = document_path
+        if "chart_selections" not in st.session_state:
+            st.session_state.chart_selections = {}
+        if 'checkbox_states' not in st.session_state:
+            st.session_state.checkbox_states = {}
+
+        # Create response time placeholder in sidebar
+        with st.sidebar:
+            if 'last_response_time' in st.session_state:
+                st.markdown("### Response Time")
+                st.info(f"{st.session_state.last_response_time:.2f} seconds")
+        
+        # Check if document changed
+        if st.session_state.selected_document != document_path:
+            st.session_state.selected_document = document_path
+            st.session_state.doc_assistant_messages = []
+            st.session_state.chart_selections = {}
+                
+        # Custom CSS for message colors
+        st.markdown(
+            """
+            <style>
+            .user-message {
+                background-color: #d1e7dd;
+                border-radius: 8px;
+                padding: 8px;
+            }
+            .assistant-message {
+                background-color: #e7e7ff;
+                border-radius: 8px;
+                padding: 8px;
+            }
+            .stButton > button {
+                width: 100px !important;
+                min-width: 100px;
+                white-space: nowrap;
+                padding: 0.5rem 1rem;
+                text-align: center;
+                background-color: #E7E7E7 !important;
+                color: black !important;
+                transition: all 0.3s ease;
+                border: none !important;
+            }
+            .stButton > button:hover {
+                background-color: #CCCCCC !important;
+                color: black !important;
+                border: none !important;
+            }
+            /* Primary button styling */
+            .stButton > button[kind="primary"] {
+                background-color: #0051A2 !important;
+                color: white !important;
+                border: none !important;
+            }
+            .stButton > button[kind="primary"]:hover {
+                background-color: #003D82 !important;
+                color: white !important;
+            }
+            .chart-type-label {
+                margin-bottom: 0.0rem !important;
+                padding-bottom: 0 !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )        
+
+        # Display existing messages
+        for msg_idx, msg in enumerate(st.session_state.doc_assistant_messages):
+            with st.chat_message(msg["role"]):
+                if msg["role"] == "assistant":
+                    try:
+                        # Parse response data
+                        response_data = json.loads(msg["content"])
+
+                        # Display answer text
+                        if "answer" in response_data:
+                            user_answer = response_data["answer"]
+                            color_class = "user-message" if msg["role"] == "user" else "assistant-message"
+                            st.markdown(f"<div class='{color_class}'>{user_answer}</div>", unsafe_allow_html=True)
+
+                        # Handle chart data display
+                        if "chart_data" in response_data:
+                            chart_data = response_data["chart_data"]
+                            chart_attrs = response_data.get("chart_attributes", {})
+                            
+                            # For historical messages (within the message history loop):
+                            for chart_idx, chart in enumerate(chart_data):
+                                if "header" in chart and "rows" in chart:
+                                    try:
+                                        # Create DataFrame
+                                        df = pd.DataFrame(chart["rows"], columns=chart["header"])
+                                        
+                                        # Show data table
+                                        table_label = f"Data Table {chart_idx + 1}" if len(chart_data) > 1 else "Data Table"
+                                        with st.expander(table_label):
+                                            numeric_col = df.columns[-1]
+                                            st.dataframe(df.style.format({numeric_col: "{:.2f}"}), use_container_width=True)
+                                        
+                                        st.write("")
+                                        
+                                        # Available chart types
+                                        available_charts = [
+                                            "bar", "horizontal_bar", "line", "area", "scatter",
+                                            "pie", "donut", "treemap", "funnel", "bubble"
+                                        ]
+                                        
+                                        # Chart selection header
+                                        if len(chart_data) > 1:
+                                            #st.write(f"Select chart type for dataset {chart_idx + 1}:")
+                                            st.markdown(f'<p class="chart-type-label">Select chart type for dataset {chart_idx + 1}:</p>', unsafe_allow_html=True)
+                                        else:
+                                            st.markdown('<p class="chart-type-label">Select chart type:</p>', unsafe_allow_html=True)
+                                            
+                                        cols = st.columns(len(available_charts))
+                                        
+                                        # Generate unique key for this dataset
+                                        dataset_key = f"history_{msg_idx}_{chart_idx}"
+
+                                        # Handle chart selections
+                                        dataset_key = f"history_{msg_idx}_{chart_idx}"
+                                        current_selection = st.session_state.chart_selections.get(dataset_key)
+
+                                        # Create uniform columns for the buttons
+                                        num_buttons = len(available_charts)
+                                        cols = st.columns(num_buttons)
+                                        for idx, chart_type in enumerate(available_charts):
+                                            with cols[idx]:
+                                                button_label = chart_type.replace("_", " ").title()
+                                                # Center-align the button in its column
+                                                st.markdown('<div style="text-align: center;">', unsafe_allow_html=True)
+                                                if st.button(
+                                                    button_label,
+                                                    type="secondary" if current_selection != chart_type else "primary",
+                                                    key=f"history_chart_{msg_idx}_{chart_idx}_{chart_type}"
+                                                ):
+                                                    if current_selection == chart_type:
+                                                        # Deselect if clicking the same type
+                                                        st.session_state.chart_selections[dataset_key] = None
+                                                    else:
+                                                        # Select new chart type
+                                                        self._handle_chart_selection(chart_type, dataset_key)
+                                                    st.rerun()
+
+                                        # Render chart if selected
+                                        if current_selection:
+                                            try:
+                                                self._render_chart_with_values(df, current_selection, chart_attrs)
+                                                st.write("")
+                                            except Exception as e:
+                                                st.error(f"Error rendering chart: {str(e)}")
+                                                
+                                    except Exception as e:
+                                        st.error(f"Error displaying dataset {chart_idx + 1}: {str(e)}")
+                                        st.write("Raw chart data:", chart)
+
+                    except json.JSONDecodeError:
+                        st.markdown(msg["content"])
+                else:
+                    st.markdown(msg["content"])
+
+        # Chat input and message handling
+        if prompt := st.chat_input("Ask about the document..."):
+            # Add user message
+            st.session_state.doc_assistant_messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(f"<div class='user-message'>{prompt}</div>", unsafe_allow_html=True)
+
+            # Generate and display assistant response
+            with st.spinner("Analyzing document..."):
+                start_time = time.time()  # Start timing
+                response = self._get_document_response(prompt, document_path)
+                end_time = time.time()  # End timing
+                
+                # Store response time
+                st.session_state.last_response_time = end_time - start_time
+
+                st.session_state.doc_assistant_messages.append({
+                    "role": "assistant",
+                    "content": response
+                })
+
+                with st.chat_message("assistant"):
+                    try:
+                        response_data = json.loads(response)
+                        
+                        # Display answer text
+                        if "answer" in response_data:
+                            user_answer1 = response_data["answer"]
+                            st.markdown(f"<div class='assistant-message'>{user_answer1}</div>", unsafe_allow_html=True)
+
+                        # Handle chart data display
+                        if "chart_data" in response_data:
+                            chart_data = response_data["chart_data"]
+                            chart_attrs = response_data.get("chart_attributes", {})
+                            
+                            # Handle multiple chart datasets
+                            for chart_idx, chart in enumerate(chart_data):
+                                if "header" in chart and "rows" in chart:
+                                    try:
+                                        # Create DataFrame
+                                        df = pd.DataFrame(chart["rows"], columns=chart["header"])
+                                        
+                                        # Show data table with index for multiple charts
+                                        if len(chart_data) > 1:
+                                            with st.expander(f"Data Table {chart_idx + 1}"):
+                                                numeric_col = df.columns[-1]
+                                                st.dataframe(df.style.format({numeric_col: "{:.2f}"}), use_container_width=True)
+                                        else:
+                                            with st.expander(f"Data Table"):
+                                                numeric_col = df.columns[-1]
+                                                st.dataframe(df.style.format({numeric_col: "{:.2f}"}), use_container_width=True)
+                                        
+                                        # Add some spacing
+                                        st.write("")
+                                        
+                                        # Create list of available chart types
+                                        available_charts = [
+                                            "bar", "horizontal_bar", "line", "area", "scatter",
+                                            "pie", "donut", "treemap", "funnel", "bubble"
+                                        ]
+                                        
+                                        # Create horizontal chart type selection
+                                        if len(chart_data) > 1:
+                                            #st.write(f"Select chart type for dataset {chart_idx + 1}:")
+                                            st.markdown(f'<p class="chart-type-label">Select chart type for dataset {chart_idx + 1}:</p>', unsafe_allow_html=True)
+                                        else:
+                                            #st.write("Select chart type:")
+                                            st.markdown('<p class="chart-type-label">Select chart type:</p>', unsafe_allow_html=True)
+                                            
+                                        cols = st.columns(len(available_charts))
+                                        
+                                        # For new messages (within the new message handling section):
+                                        # Use the same logic but with different keys:
+
+                                        dataset_key = f"new_{len(st.session_state.doc_assistant_messages)}_{chart_idx}"
+                                        current_selection = st.session_state.chart_selections.get(dataset_key)
+
+                                        # Create uniform columns for the buttons
+                                        num_buttons = len(available_charts)
+                                        cols = st.columns(num_buttons)
+                                        for idx, chart_type in enumerate(available_charts):
+                                            with cols[idx]:
+                                                button_label = chart_type.replace("_", " ").title()
+                                                # Center-align the button in its column
+                                                st.markdown('<div style="text-align: center;">', unsafe_allow_html=True)
+                                                if st.button(
+                                                    button_label,
+                                                    type="secondary" if current_selection != chart_type else "primary",
+                                                    key=f"new_chart_{len(st.session_state.doc_assistant_messages)}_{chart_idx}_{chart_type}"
+                                                ):
+                                                    if current_selection == chart_type:
+                                                        # Deselect if clicking the same type
+                                                        st.session_state.chart_selections[dataset_key] = None
+                                                    else:
+                                                        # Select new chart type
+                                                        self._handle_chart_selection(chart_type, dataset_key)
+                                                    st.rerun()
+
+                                        # Render chart if selected
+                                        if current_selection:
+                                            try:
+                                                self._render_chart_with_values(df, current_selection, chart_attrs)
+                                                st.write("")
+                                            except Exception as e:
+                                                st.error(f"Error rendering chart: {str(e)}")
+
+                                    except Exception as e:
+                                        st.error(f"Error displaying dataset {chart_idx + 1}: {str(e)}")
+                                        st.write("Raw chart data:", chart)
+
+                    except json.JSONDecodeError:
+                        st.markdown(response)
+                # Rerun after successfully displaying everything
+                st.rerun()
+
+    def _process_document(self, file, bank: str, year: str, period: str):
+        """Process uploaded document with validation and error handling."""
+        try:
+            # Validate file
+            validation_results = self._validate_file(file)
+            if not validation_results['is_valid']:
+                raise ValueError("\n".join(validation_results['errors']))
+
+            # Read file content once
+            file.seek(0)
+            file_content = file.read()
+
+            # Upload to S3
+            s3_file = io.BytesIO(file_content)
+            s3_file.name = file.name
+            s3_path = self.s3_service.upload_file(s3_file, bank, year, period)
+
+            # Process document
+            process_file = io.BytesIO(file_content)
+            process_file.name = file.name
+            chunks = self.doc_processor.process_document(
+                file=process_file,
+                filename=file.name
+            )
+
+            # Index in Knowledge Base
+            self.kb_service.index_document(
+                chunks,
+                s3_path,
+                metadata={
+                    "bank": bank,
+                    "year": year,
+                    "period": period,
+                    "filename": file.name,
+                    "file_type": os.path.splitext(file.name)[1].lower(),
+                    "upload_time": datetime.utcnow().isoformat()
+                }
+            )
+
+        except Exception as e:
+            raise Exception(f"Error processing document: {str(e)}")
+        finally:
+            # Explicitly close file objects
+            if 's3_file' in locals():
+                s3_file.close()
+            if 'process_file' in locals():
+                process_file.close()
+
+    def _validate_file(self, file) -> Dict[str, Any]:
+        """Validate uploaded file."""
+        try:
+            validation_results = {
+                'is_valid': True,
+                'errors': [],
+                'warnings': []
+            }
+            
+            # Check file size
+            file.seek(0, 2)  # Seek to end
+            file_size = file.tell()
+            file.seek(0)  # Reset position
+            
+            max_size = self.config['document_processing'].get('max_file_size_mb', 100) * 1024 * 1024
+            if file_size > max_size:
+                validation_results['is_valid'] = False
+                validation_results['errors'].append(
+                    f"File size ({file_size/1024/1024:.1f}MB) exceeds maximum allowed size ({max_size/1024/1024}MB)"
+                )
+            
+            # Check file type
+            file_extension = os.path.splitext(file.name)[1].lower()
+            supported_formats = []
+            for formats in self.config['document_processing']['supported_formats'].values():
+                supported_formats.extend(formats)
+                
+            if file_extension not in supported_formats:
+                validation_results['is_valid'] = False
+                validation_results['errors'].append(
+                    f"Unsupported file type: {file_extension}. Supported types: {', '.join(supported_formats)}"
+                )
+            
+            return validation_results
+            
+        except Exception as e:
+            return {
+                'is_valid': False,
+                'errors': [str(e)],
+                'warnings': []
+            }
+
+    def _get_document_response(self, prompt: str, document_path: str) -> str:
+        """Generate AI response based on document content with guardrails."""
+        try:
+            # Validate prompt using guardrails
+            is_valid, error_message, redacted_prompt = self.guardrails_service.validate_prompt(prompt)
+            
+            if not is_valid:
+                return json.dumps({
+                    "answer": f"Security Alert: {error_message}. Please revise your question.",
+                    "chart_data": []
+                })
+
+            # Use redacted prompt if PII was detected and redacted
+            safe_prompt = redacted_prompt if redacted_prompt else prompt
+
+            # Get response from Knowledge Base service
+            safe_response = self.kb_service.search_documents(
+                query=safe_prompt,
+                document_path=document_path,
+                chat_history=st.session_state.doc_assistant_messages,
+                use_nova=st.session_state.selected_model == 'Amazon-Nova-Pro-v1'
+            )            
+
+            if not safe_response:
+                return json.dumps({
+                    "answer": "I couldn't find relevant information in the document to answer your question.",
+                    "chart_data": []
+                })
+
+            # Validate response using guardrails
+            is_valid, error_message, redacted_response = self.guardrails_service.validate_response(safe_response)
+            
+            if not is_valid:
+                return json.dumps({
+                    "answer": f"Security Alert: {error_message}. Please try a different question.",
+                    "chart_data": []
+                })
+
+            # Use redacted response if PII was detected and redacted
+            final_response = redacted_response if redacted_response else safe_response
+
+            # Log successful interaction with proper variable reference
+            self.guardrails_service.log_security_event(
+                "successful_interaction",
+                {
+                    "document_path": document_path,
+                    "prompt_length": len(safe_prompt),
+                    "response_length": len(final_response),
+                    "pii_redacted": bool(redacted_prompt or redacted_response)
+                }
+            )
+
+            return final_response
+
+        except Exception as e:
+            end_time = time.time()
+            st.session_state.last_response_time = end_time - start_time
+            error_msg = f"Error processing your question: {str(e)}"
+            self.guardrails_service.log_security_event(
+                "error",
+                {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "document_path": document_path
+                }
+            )
+            return json.dumps({
+                "answer": error_msg,
+                "chart_data": []
+            })
+
+    def _format_chunks_for_context(self, chunks: List[Dict]) -> str:
+        """Format document chunks for context."""
+        context_parts = []
+        for chunk in chunks:
+            source = os.path.basename(chunk['source'])
+            page = chunk.get('page_number', 'N/A')
+            context_parts.append(
+                f"""Document: {source}
+                Page: {page}
+                Content: {chunk['content']}
+                ---"""
+            )
+        return "\n\n".join(context_parts)
+
+    def _format_response_with_citations(self, response: str, chunks: List[Dict]) -> str:
+        """Format response with citations."""
+        formatted_response = response
+        
+        # Add source summary
+        sources = set()
+        for chunk in chunks:
+            source = os.path.basename(chunk['source'])
+            page = chunk.get('page_number', 'N/A')
+            sources.add(f"{source} (Page {page})")
+        
+        formatted_response += "\n\n**Sources:**\n"
+        for source in sorted(sources):
+            formatted_response += f"- {source}\n"
+        
+        return formatted_response
+
+    def _get_supported_formats(self) -> List[str]:
+        """Get list of supported file formats."""
+        formats = []
+        for format_list in self.config['document_processing']['supported_formats'].values():
+            formats.extend(format_list)
+        return formats
