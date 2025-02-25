@@ -1,4 +1,37 @@
 Can we exhaustively audit models for inequality bias?
+While we cannot exhaustively audit the full Claude 3.5 Sonnet model, we can implement bias testing on outputs using established bias evaluation frameworks and prompt taxonomies to identify and mitigate potential inequalities in our specific use cases.
+Are we able to validate and audit the source and purpose of all GAI code?
+No, as Claude 3.5 Sonnet is a proprietary model from Anthropic hosted on AWS Bedrock. We can audit our prompts, guardrails, and application code, but not the underlying model architecture or training methodology.
+Has any validation activity be integrated as part of the GAI POC process where deemed to be required?
+Yes, our POC includes validation through prompt testing, response evaluation against quality benchmarks, safety testing, and alignment with business requirements before approving the model for production use.
+Can we exhaustively justify a model's decision making?
+No, Claude 3.5 Sonnet is a black-box model where we cannot fully trace decision paths. However, we can implement structured prompting techniques that request reasoning steps to provide partial justification for outputs.
+Is model fairness assessment required, and if so, how will they be ensured?
+Yes, fairness assessments are required and will be conducted through systematic testing of model responses across different demographic scenarios, prompt variations, and periodic audits of production outputs.
+Describe the process for model retraining/recalibrations where applicable or how this will be maintained going forward?
+As Claude 3.5 Sonnet is managed by Anthropic/AWS, we cannot control retraining. Our strategy focuses on prompt engineering optimization, implementing guardrails, and having contingency plans for when Anthropic releases new model versions.
+Outline any expected testing to be completed as part of the development process, inclusive of challenger models, benchmarks and model performance tests.
+Testing will include benchmarking against other Bedrock models (like Titan or Llama), evaluation of response quality, safety tests, latency measurements, and functional testing of the end-to-end application.
+Describe the justification for the model stability, and the proposed handling of data and concept drift.
+We rely on AWS/Anthropic for model stability, while implementing input monitoring, output quality assessment, and prompt effectiveness tracking to detect when performance degrades or responses drift from expected patterns.
+Discuss anticipated/known limitations to the proposed AI System.
+Limitations include lack of real-time information (knowledge cutoff), potential hallucinations, inability to access external tools without custom integration, token limitations per request, and dependency on Anthropic/AWS service availability.
+For material AI system changes, reference to the existing model and discuss incremental changes to the existing methodology.
+When AWS/Anthropic updates Claude, we'll assess impact through A/B testing between versions, document performance differences, and update prompt engineering strategies to maintain consistent application behavior.
+As a minimum, state the broad types of tests required and which development procedures will be utilized.
+Required tests include prompt efficacy testing, response quality evaluation, edge case handling, functional integration testing, performance/latency testing, and user acceptance testing within our CI/CD pipeline.
+Describe the governance process within the first line for model performance oversight including review of outputs, monitoring of model performance, and addressing any issues that arise.
+First-line governance includes CloudWatch monitoring dashboards, regular sampling of model inputs/outputs for quality review, alert mechanisms for performance degradation, and an escalation process for concerning model responses.
+Model transparency encompass explainability and interpretability. Please explain how to ensure your AI/ML system is transparent and comprehensible?
+We enhance transparency by using prompt techniques that request Claude to explain its reasoning, documenting model limitations for users, providing confidence indicators where appropriate, and maintaining clear documentation of system capabilities.
+What steps will you take to make sure the model can be reproduced?
+We ensure reproducibility by versioning all prompts, storing model parameters (temperature, top-p values), maintaining input/output logs, using deterministic sampling when possible, and documenting the exact AWS Bedrock model version used.
+How will use of AI system be made transparent to users, are there any considerations?
+Users will be informed that they're interacting with Claude 3.5 Sonnet through clear disclosures, appropriate AI usage notifications, explanation of capabilities and limitations, and documentation of how user data is processed through the system.
+
+
+
+Can we exhaustively audit models for inequality bias?
 While completely exhaustive auditing is challenging, we can implement comprehensive bias testing using established fairness metrics across various demographic groups, analyzing both training data and model outputs for patterns of discrimination.
 Are we able to validate and audit the source and purpose of all GAI code?
 Yes, through rigorous documentation of model provenance, code repositories with version control, and detailed model cards that outline the development purpose, training methodology, and intended use cases.
