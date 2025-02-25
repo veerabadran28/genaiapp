@@ -1,0 +1,30 @@
+Can we exhaustively audit models for inequality bias?
+While completely exhaustive auditing is challenging, we can implement comprehensive bias testing using established fairness metrics across various demographic groups, analyzing both training data and model outputs for patterns of discrimination.
+Are we able to validate and audit the source and purpose of all GAI code?
+Yes, through rigorous documentation of model provenance, code repositories with version control, and detailed model cards that outline the development purpose, training methodology, and intended use cases.
+Has any validation activity be integrated as part of the GAI POC process where deemed to be required?
+Yes, we've incorporated validation checkpoints throughout the POC process, including data validation, model performance evaluation against benchmarks, and testing against adversarial examples to ensure robustness.
+Can we exhaustively justify a model's decision making?
+While complete exhaustive justification is difficult with complex models, we provide layered explainability through feature importance metrics, LIME/SHAP analysis, and counterfactual explanations to rationalize key decisions.
+Is model fairness assessment required, and if so, how will they be ensured?
+Yes, fairness assessments are required and will be ensured through pre-deployment bias testing, ongoing monitoring across protected attributes, and regular bias mitigation procedures as outlined in the Customer Engagement Standard.
+Describe the process for model retraining/recalibrations where applicable or how this will be maintained going forward?
+Our retraining process includes regular performance monitoring, data drift detection, scheduled recalibration periods, and a formal change management process requiring approval before deployment, maintaining full control even when using vendor models.
+Outline any expected testing to be completed as part of the development process, inclusive of challenger models, benchmarks and model performance tests.
+We'll conduct comprehensive testing including challenger model comparisons, performance benchmarking against industry standards, A/B testing, red team exercises, robustness testing, and evaluation on diverse datasets.
+Describe the justification for the model stability, and the proposed handling of data and concept drift.
+Model stability is justified through extensive stability testing and is maintained through automated drift detection systems that monitor input distributions and output patterns, triggering alerts when deviations exceed thresholds.
+Discuss anticipated/known limitations to the proposed AI System.
+Known limitations include potential biases in training data, limitations in handling edge cases, explainability challenges with complex decision paths, and potential performance degradation when faced with out-of-distribution inputs.
+For material AI system changes, reference to the existing model and discuss incremental changes to the existing methodology.
+Material changes will be documented in change management logs, with impact assessments comparing performance to the previous version and detailed analysis of how methodology changes affect model behavior and outputs.
+As a minimum, state the broad types of tests required and which development procedures will be utilized.
+Required tests include unit testing, integration testing, performance testing, fairness/bias assessment, robustness testing, and user acceptance testing, utilizing CI/CD pipelines, test automation, and formal QA procedures.
+Describe the governance process within the first line for model performance oversight including review of outputs, monitoring of model performance, and addressing any issues that arise.
+First-line governance includes regular performance dashboards reviewed by product owners, automated monitoring alerts for anomalies, monthly performance review meetings, and an incident response protocol for addressing identified issues.
+Model transparency encompass explainability and interpretability. Please explain how to ensure your AI/ML system is transparent and comprehensible, such as feature importance and how inputs and outputs are connected, where applicable?
+We ensure transparency through model documentation, feature importance visualization, decision path explanations, confidence scores for predictions, and user-friendly interfaces that communicate how specific inputs influence outputs.
+What steps will you take to make sure the model can be reproduced?
+To ensure reproducibility, we maintain detailed documentation of model architecture, preserve training datasets, use deterministic algorithms where possible, version control all code and parameters, and conduct periodic reproduction tests.
+How will use of AI system be made transparent to users, are there any considerations?
+Users will be informed about AI system use through clear disclosures, explanations of how decisions are made, confidence levels for outputs, options to request human review, and feedback mechanisms, while considering regulatory requirements and user experience.
