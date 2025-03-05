@@ -1,0 +1,93 @@
+CHART_TYPES = {
+    # Column Charts
+    "Column Chart": XL_CHART_TYPE.COLUMN_CLUSTERED,
+    "Stacked Column Chart": XL_CHART_TYPE.COLUMN_STACKED,
+    "100% Stacked Column Chart": XL_CHART_TYPE.COLUMN_STACKED_100,
+    "3D Column Chart": XL_CHART_TYPE.THREE_D_COLUMN,
+    "3D Stacked Column Chart": XL_CHART_TYPE.THREE_D_COLUMN_STACKED,
+    "3D 100% Stacked Column Chart": XL_CHART_TYPE.THREE_D_COLUMN_STACKED_100,
+    "3D Clustered Column Chart": XL_CHART_TYPE.THREE_D_COLUMN_CLUSTERED,
+    
+    # Bar Charts (Horizontal)
+    "Bar Chart": XL_CHART_TYPE.BAR_CLUSTERED,
+    "Stacked Bar Chart": XL_CHART_TYPE.BAR_STACKED,
+    "100% Stacked Bar Chart": XL_CHART_TYPE.BAR_STACKED_100,
+    "3D Bar Chart": XL_CHART_TYPE.THREE_D_BAR,
+    "3D Stacked Bar Chart": XL_CHART_TYPE.THREE_D_BAR_STACKED,
+    "3D 100% Stacked Bar Chart": XL_CHART_TYPE.THREE_D_BAR_STACKED_100,
+    
+    # Line Charts
+    "Line Chart": XL_CHART_TYPE.LINE,
+    "Line Chart with Markers": XL_CHART_TYPE.LINE_MARKERS,
+    "Stacked Line Chart": XL_CHART_TYPE.LINE_STACKED,
+    "Stacked Line Chart with Markers": XL_CHART_TYPE.LINE_MARKERS_STACKED,
+    "100% Stacked Line Chart": XL_CHART_TYPE.LINE_STACKED_100,
+    "100% Stacked Line Chart with Markers": XL_CHART_TYPE.LINE_MARKERS_STACKED_100,
+    
+    # Pie Charts
+    "Pie Chart": XL_CHART_TYPE.PIE,
+    "Exploded Pie Chart": XL_CHART_TYPE.PIE_EXPLODED,
+    "3D Pie Chart": XL_CHART_TYPE.THREE_D_PIE,
+    "3D Exploded Pie Chart": XL_CHART_TYPE.THREE_D_PIE_EXPLODED,
+    "Pie of Pie Chart": XL_CHART_TYPE.PIE_OF_PIE,
+    "Bar of Pie Chart": XL_CHART_TYPE.BAR_OF_PIE,
+    
+    # Doughnut Charts
+    "Doughnut Chart": XL_CHART_TYPE.DOUGHNUT,
+    "Exploded Doughnut Chart": XL_CHART_TYPE.DOUGHNUT_EXPLODED,
+    
+    # Area Charts
+    "Area Chart": XL_CHART_TYPE.AREA,
+    "Stacked Area Chart": XL_CHART_TYPE.AREA_STACKED,
+    "100% Stacked Area Chart": XL_CHART_TYPE.AREA_STACKED_100,
+    "3D Area Chart": XL_CHART_TYPE.THREE_D_AREA,
+    "3D Stacked Area Chart": XL_CHART_TYPE.THREE_D_AREA_STACKED,
+    "3D 100% Stacked Area Chart": XL_CHART_TYPE.THREE_D_AREA_STACKED_100,
+    
+    # Scatter and Bubble Charts
+    "Scatter Chart": XL_CHART_TYPE.XY_SCATTER,
+    "Scatter Chart with Lines": XL_CHART_TYPE.XY_SCATTER_LINES,
+    "Scatter Chart with Lines and No Markers": XL_CHART_TYPE.XY_SCATTER_LINES_NO_MARKERS,
+    "Scatter Chart with Smooth Lines": XL_CHART_TYPE.XY_SCATTER_SMOOTH,
+    "Scatter Chart with Smooth Lines and No Markers": XL_CHART_TYPE.XY_SCATTER_SMOOTH_NO_MARKERS,
+    "Bubble Chart": XL_CHART_TYPE.BUBBLE,
+    "3D Bubble Chart": XL_CHART_TYPE.BUBBLE_THREE_D_EFFECT,
+    
+    # Stock Charts
+    "High-Low-Close Stock Chart": XL_CHART_TYPE.STOCK_HLC,
+    "Open-High-Low-Close Stock Chart": XL_CHART_TYPE.STOCK_OHLC,
+    "Volume-High-Low-Close Stock Chart": XL_CHART_TYPE.STOCK_VHLC,
+    "Volume-Open-High-Low-Close Stock Chart": XL_CHART_TYPE.STOCK_VOHLC,
+    
+    # Surface Charts
+    "3D Surface Chart": XL_CHART_TYPE.SURFACE,
+    "3D Surface Chart (Wireframe)": XL_CHART_TYPE.SURFACE_WIREFRAME,
+    "3D Contour Chart": XL_CHART_TYPE.SURFACE_TOP_VIEW,
+    "3D Contour Chart (Wireframe)": XL_CHART_TYPE.SURFACE_TOP_VIEW_WIREFRAME,
+    
+    # Radar Charts
+    "Radar Chart": XL_CHART_TYPE.RADAR,
+    "Radar Chart with Markers": XL_CHART_TYPE.RADAR_MARKERS,
+    "Filled Radar Chart": XL_CHART_TYPE.RADAR_FILLED,
+    
+    # Combo Charts
+    "Combo Chart (Clustered Column - Line)": XL_CHART_TYPE.COLUMN_CLUSTERED_LINE,
+    "Combo Chart (Stacked Column - Line)": XL_CHART_TYPE.COLUMN_STACKED_LINE,
+    "Combo Chart (100% Stacked Column - Line)": XL_CHART_TYPE.COLUMN_STACKED_100_LINE,
+    "Combo Chart (Clustered Column - Line on Secondary Axis)": XL_CHART_TYPE.COLUMN_CLUSTERED_LINE_SECONDARY_AXIS,
+    "Combo Chart (Stacked Column - Line on Secondary Axis)": XL_CHART_TYPE.COLUMN_STACKED_LINE_SECONDARY_AXIS,
+    "Combo Chart (100% Stacked Column - Line on Secondary Axis)": XL_CHART_TYPE.COLUMN_STACKED_100_LINE_SECONDARY_AXIS,
+    
+    # Other Specialized Charts
+    "Funnel Chart": XL_CHART_TYPE.FUNNEL,
+    "Box and Whisker Chart": XL_CHART_TYPE.BOX_WHISKER,
+    "Waterfall Chart": XL_CHART_TYPE.WATERFALL,
+    "Treemap Chart": XL_CHART_TYPE.TREEMAP,
+    "Sunburst Chart": XL_CHART_TYPE.SUNBURST,
+    "Histogram Chart": XL_CHART_TYPE.HISTOGRAM,
+    "Pareto Chart": XL_CHART_TYPE.PARETO,
+    "Region Map": XL_CHART_TYPE.REGION_MAP,
+    
+    # Heatmap-style Charts
+    "Heatmap Chart": XL_CHART_TYPE.HEATMAP,
+ 
