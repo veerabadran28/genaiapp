@@ -1,0 +1,140 @@
+When you're using temporary credentials with PyAthena in this way, the ExpiredTokenException occurs because those credentials naturally expire (typically after 1-12 hours depending on your AWS configuration).
+Here's how to fix this:
+
+Implement a credential refresh mechanism:
+
+pythonCopyfrom pyathena import connect
+import requests
+import json
+import time
+
+def get_temp_credentials(username, password, aws_url):
+    """Function to get temporary AWS credentials"""
+    # Your existing code to fetch credentials using username/password
+    # This is a placeholder for your actual implementation
+    response = requests.post(
+        aws_url,
+        json={"username": username, "password": password}
+    )
+    credentials = json.loads(response.text)
+    return credentials
+
+def connect_with_refresh(username, password, aws_url, region, s3_staging_dir):
+    """Connect to Athena with credential refresh handling"""
+    credentials = get_temp_credentials(username, password, aws_url)
+    
+    # Connect to Athena
+    connection = connect(
+        aws_access_key_id=credentials['AccessKeyId'],
+        aws_secret_access_key=credentials['SecretAccessKey'],
+        aws_session_token=credentials['SessionToken'],
+        region_name=region,
+        s3_staging_dir=s3_staging_dir
+    )
+    
+    return connection
+
+# Usage
+connection = connect_with_refresh(
+    username="your_username",
+    password="your_password", 
+    aws_url="your_aws_auth_url",
+    region="your_region",
+    s3_staging_dir="s3://your-bucket/path/"
+)
+
+# Execute query
+cursor = connection.cursor()
+cursor.execute("SELECT * FROM your_database.your_table LIMIT 10")
+
+Detect and handle token expiration:
+
+pythonCopyfrom pyathena import connect
+from pyathena.error import OperationalError
+import time
+
+def execute_with_retry(connection, query, max_retries=3):
+    """Execute a query with retry logic for expired tokens"""
+    retries = 0
+    while retries < max_retries:
+        try:
+            cursor = connection.cursor()
+            cursor.execute(query)
+            return cursor
+        except OperationalError as e:
+            if "ExpiredTokenException" in str(e) and retries < max_retries - 1:
+                # Reconnect with fresh credentials
+                connection = connect_with_refresh(
+                    username="your_username",
+                    password="your_password", 
+                    aws_url="your_aws_auth_url",
+                    region="your_region",
+                    s3_staging_dir="s3://your-bucket/path/"
+                )
+                retries += 1
+                print(f"Token expired, retrying ({retries}/{max_retries})...")
+            else:
+                raise
+
+Create a PyAthena connection wrapper class:
+
+pythonCopyclass RefreshingAthenaConnection:
+    def __init__(self, username, password, aws_url, region, s3_staging_dir, 
+                 refresh_threshold_seconds=300):
+        self.username = username
+        self.password = password
+        self.aws_url = aws_url
+        self.region = region
+        self.s3_staging_dir = s3_staging_dir
+        self.refresh_threshold_seconds = refresh_threshold_seconds
+        self.connection = None
+        self.credentials = None
+        self.expiration_time = 0
+        
+        # Initial connection
+        self._refresh_connection()
+    
+    def _refresh_connection(self):
+        self.credentials = get_temp_credentials(self.username, self.password, self.aws_url)
+        
+        # Store the expiration time
+        if 'Expiration' in self.credentials:
+            # AWS typically provides expiration as ISO format string
+            expiration_str = self.credentials['Expiration']
+            # Convert to timestamp (implementation depends on the format)
+            self.expiration_time = convert_to_timestamp(expiration_str)
+        else:
+            # Default expiration (1 hour from now)
+            self.expiration_time = time.time() + 3600
+        
+        self.connection = connect(
+            aws_access_key_id=self.credentials['AccessKeyId'],
+            aws_secret_access_key=self.credentials['SecretAccessKey'],
+            aws_session_token=self.credentials['SessionToken'],
+            region_name=self.region,
+            s3_staging_dir=self.s3_staging_dir
+        )
+    
+    def get_cursor(self):
+        """Get a cursor, refreshing credentials if needed"""
+        # Check if credentials are about to expire
+        if time.time() > (self.expiration_time - self.refresh_threshold_seconds):
+            self._refresh_connection()
+        
+        return self.connection.cursor()
+    
+    def execute(self, query):
+        """Execute a query with automatic credential refresh"""
+        cursor = self.get_cursor()
+        try:
+            cursor.execute(query)
+            return cursor
+        except Exception as e:
+            if "ExpiredTokenException" in str(e):
+                self._refresh_connection()
+                cursor = self.connection.cursor()
+                cursor.execute(query)
+                return cursor
+            else:
+                raise
+This approach requires you to implement the get_temp_credentials() and convert_to_timestamp() functions according to your specific AWS authentication method. The key is to proactively refresh credentials before they expire or to handle the expiration exception by obtaining new credentials.
