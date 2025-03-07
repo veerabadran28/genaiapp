@@ -119,3 +119,143 @@ The specific error message you're seeing
 The authentication service you're using (AWS SSO, SAML federation, etc.)
 Any specific patterns you notice about when the error occurs (e.g., after a certain period of inactivity)
 This additional information would help identify the root cause more precisely.
+
+==================================================================================
+
+Explanation:
+
+Detailed Explanations of the Six Approaches to Fix Expired Token Issues
+1. Verify the Credential Source Behavior
+This approach adds diagnostic code to confirm whether your credential source is actually providing fresh tokens each time you call it.
+How it works:
+
+When you call get_temp_credentials(), it retrieves credentials as usual but adds debug output
+It extracts and prints the expiration time from the credentials (if available)
+It prints a snippet of the session token so you can visually confirm if it changes between calls
+By comparing these values across multiple calls, you can determine if you're getting fresh credentials
+
+Why this helps:
+
+If you see the same token snippet or expiration time across multiple calls, you've confirmed caching is occurring
+If values change but you still get expired token errors, the issue may be elsewhere
+This diagnostic step helps pinpoint where the problem lies before implementing more complex solutions
+
+Implementation considerations:
+
+This is primarily for debugging and won't directly solve the problem
+You'd need to remove this diagnostic code once the issue is resolved
+Printing credential information (even snippets) should be done only in development environments
+
+2. Force Credential Refresh with Cache Bypassing
+This approach specifically targets HTTP-level caching that might be occurring in your credential service.
+How it works:
+
+Adds a timestamp parameter to the credential request URL to make each request unique
+Sets explicit HTTP headers that instruct servers and proxies not to cache the response
+These techniques force the server to treat each request as new and provide fresh credentials
+
+Why this helps:
+
+HTTP responses are often cached at various levels (browser, proxy, CDN, etc.)
+Adding changing parameters like timestamps makes each URL effectively unique
+The "Cache-Control" header explicitly instructs servers not to store the response
+Together, these techniques bypass potential caching at the HTTP level
+
+Implementation considerations:
+
+This approach targets HTTP-level caching, not AWS SDK or client-side caching
+Effective if your credential service is a RESTful API with potential caching
+May slightly increase network traffic by preventing legitimate caching
+
+3. Implement Clear Credential Invalidation
+This approach directly targets known caching mechanisms in common libraries and your own code.
+How it works:
+
+Creates a function that explicitly clears all known credential caches
+Clears any session objects that might be maintaining connection state
+Removes any manually cached credentials in your own code
+Call this function before requesting fresh credentials
+
+Why this helps:
+
+Libraries like requests maintain session state that can cache responses
+Custom caching in your code could store old credentials
+By explicitly clearing these caches, you ensure the system will request fresh credentials
+This handles client-side caching that may persist across function calls
+
+Implementation considerations:
+
+You need to adapt this to the specific libraries and caching mechanisms in your code
+May need to expand to clear additional caches depending on your implementation
+Can be used in combination with other approaches
+
+4. Create PyAthena Connection with Direct Credential Passing
+This approach bypasses credential provider chains and caching within PyAthena/Boto3.
+How it works:
+
+Creates a completely new connection for each operation
+Explicitly passes freshly obtained credentials to the connection
+Avoids any credential provider or caching mechanisms built into PyAthena/AWS SDK
+Doesn't reuse connections, which might hold onto old credentials
+
+Why this helps:
+
+AWS SDKs often include credential providers that cache credentials
+By explicitly providing credentials with each new connection, you bypass this caching
+Creating a new connection ensures no stale state is maintained
+Direct credential passing gives you full control over the authentication process
+
+Implementation considerations:
+
+May be less efficient due to creating new connections for each operation
+Doesn't address the root cause if credentials aren't refreshing correctly
+Useful as a workaround while investigating the underlying issue
+
+5. Add Explicit Environment Variable Clearing
+This approach targets AWS credential caching that happens through environment variables.
+How it works:
+
+Creates a function that removes all AWS credential-related environment variables
+Clears variables like AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN
+Also clears expiration information stored in environment variables
+Call this function before obtaining new credentials
+
+Why this helps:
+
+AWS SDKs often read credentials from environment variables
+These variables can persist across function calls
+By explicitly clearing them, you force the SDK to obtain fresh credentials
+Prevents old credentials from being picked up from the environment
+
+Implementation considerations:
+
+Only effective if your AWS SDK is actually using environment variables
+Won't help if caching is happening elsewhere
+Safe to implement in combination with other approaches
+Should not affect other AWS services running in the same environment
+
+6. Create a Completely Isolated Credential Flow
+This approach is the most extreme but can be effective when all else fails.
+How it works:
+
+Creates a temporary Python script file containing credential retrieval code
+Runs this script as a completely separate process using subprocess
+Captures the output (credentials) and returns them to your main process
+Each credential request runs in a fresh Python interpreter with no shared state
+
+Why this helps:
+
+Completely eliminates any possible caching or state persistence
+The new process has no knowledge of previous credentials
+No shared memory, environment, or state between credential requests
+Ensures a truly fresh start for authentication each time
+
+Implementation considerations:
+
+More resource-intensive than other approaches
+Introduces security concerns (credentials in temporary files, command line)
+Significantly slower due to process creation overhead
+Should only be used as a last resort when other approaches fail
+Not suitable for high-performance environments
+
+Each of these approaches targets a different potential cause of credential caching or staleness. You might need to use a combination of these techniques depending on where the caching is occurring. Starting with the diagnostic approach (#1) is recommended to better understand the root cause before implementing the more invasive solutions.
