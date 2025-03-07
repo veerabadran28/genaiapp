@@ -1,0 +1,121 @@
+It sounds like your credential retrieval mechanism might not be functioning as expected. Even though you're calling it each time, it could be caching credentials at some level, or there might be another issue preventing fresh credentials from being obtained.
+
+Here are some approaches to fix this:
+========================================================================================================================================================
+1. Verify the credential source behavior: First, let's confirm if your credential source is actually providing fresh tokens each time. Add some debug code to check:
+
+def get_temp_credentials(username, password, aws_url):
+    # Get credentials from your source
+    credentials = your_existing_credential_function()
+    
+    # Debug: print credential expiration time
+    if 'Expiration' in credentials:
+        print(f"Credential expiration: {credentials['Expiration']}")
+    
+    # Debug: print part of the session token to verify it's changing
+    if 'SessionToken' in credentials:
+        token_snippet = credentials['SessionToken'][:20] + "..."
+        print(f"Token snippet: {token_snippet}")
+        
+    return credentials
+========================================================================================================================================================
+2. Force credential refresh with cache bypassing: Add parameters to your credential request to bypass potential caching:
+
+def get_temp_credentials(username, password, aws_url):
+    # Add timestamp or random value to prevent caching
+    timestamp = int(time.time())
+    
+    response = requests.post(
+        f"{aws_url}?nocache={timestamp}",
+        json={"username": username, "password": password},
+        headers={"Cache-Control": "no-cache, no-store"}
+    )
+    credentials = json.loads(response.text)
+    return credentials
+========================================================================================================================================================
+3. Implement a clear credential invalidation: Explicitly clear any cached credentials:
+
+def clear_credential_cache():
+    """Attempt to clear any credential caching that might be happening"""
+    # If you're using requests library with sessions
+    global session
+    if 'session' in globals():
+        session.close()
+        session = requests.Session()
+    
+    # If there are any other caches in your code, clear them here
+    if hasattr(get_temp_credentials, '_cached_credentials'):
+        delattr(get_temp_credentials, '_cached_credentials')
+
+# Then before getting new credentials:
+clear_credential_cache()
+credentials = get_temp_credentials(username, password, aws_url)
+========================================================================================================================================================
+4. Create a PyAthena connection with direct credential passing: Bypass any credential provider caching in the PyAthena/Boto3 layer:
+
+def get_fresh_connection(username, password, aws_url, region, s3_staging_dir):
+    # Get fresh credentials directly
+    credentials = get_temp_credentials(username, password, aws_url)
+    
+    # Create a completely new connection each time
+    connection = connect(
+        aws_access_key_id=credentials['AccessKeyId'],
+        aws_secret_access_key=credentials['SecretAccessKey'],
+        aws_session_token=credentials['SessionToken'],
+        region_name=region,
+        s3_staging_dir=s3_staging_dir
+    )
+    
+    return connection
+========================================================================================================================================================
+5. Add explicit environment variable clearing: AWS credentials can sometimes be cached in environment variables:
+
+import os
+
+def reset_aws_env_vars():
+    """Clear any AWS credential environment variables"""
+    aws_env_vars = [
+        'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
+        'AWS_SECURITY_TOKEN', 'AWS_CREDENTIAL_EXPIRATION'
+    ]
+    for var in aws_env_vars:
+        if var in os.environ:
+            del os.environ[var]
+
+# Use before getting new credentials
+reset_aws_env_vars()
+========================================================================================================================================================
+6. Create a completely isolated credential flow: If all else fails, you might need to completely isolate your credential flow:
+
+import subprocess
+import json
+import tempfile
+
+def get_credentials_isolated(username, password, aws_url):
+    """Run credential fetch in a completely separate process"""
+    script = f"""
+import requests
+import json
+
+response = requests.post(
+    "{aws_url}",
+    json={{"username": "{username}", "password": "{password}"}}
+)
+print(response.text)
+"""
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py') as f:
+        f.write(script)
+        f.flush()
+        
+        result = subprocess.check_output(['python', f.name])
+        
+    return json.loads(result)
+
+========================================================================================================================================================
+If you're still facing issues after implementing these approaches, there might be credential caching happening at a deeper level in the AWS SDK or your authentication system. In that case, could you share more details about:
+
+The specific error message you're seeing
+The authentication service you're using (AWS SSO, SAML federation, etc.)
+Any specific patterns you notice about when the error occurs (e.g., after a certain period of inactivity)
+This additional information would help identify the root cause more precisely.
