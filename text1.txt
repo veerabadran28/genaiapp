@@ -7,3 +7,16 @@ What makes this achievement truly remarkable is that [Team Name] delivered this 
 The ripple effects of this app are already evident. By providing a centralized, self-serve platform for analytics and reconciliation, [Team Name] has set a new standard for efficiency and simplicity at Barclays, reducing reliance on fragmented EUDA solutions and paving the way for broader operational transformation. This is not just a technical triumph; it’s a strategic win that amplifies value for the business and its clients.
 
 [Team Name] exemplifies what exceptional achievement looks like: bold innovation, unwavering dedication, and a results-driven ethos that aligns perfectly with Barclays’ vision. I cannot think of a team more deserving of this recognition for their outstanding contribution to the firm and its stakeholders.
+
+
+===================
+
+I am thrilled to nominate [Team Name] for the Exceptional Achievement Award in recognition of their pioneering development and delivery of an in-house Writeback functionality solution for Tableau—an innovative feat that addresses a critical gap in Tableau’s out-of-the-box capabilities. This remarkable achievement, driven by the collaborative efforts of our Tableau and UI team, has delivered tangible value to Trading Wind Down (TWD) users while setting a new benchmark for ingenuity and excellence at Barclays.
+
+Faced with the challenge of TWD users needing to edit data directly within Tableau dashboards—a feature Tableau does not natively support—[Team Name] stepped up with unwavering determination. They designed and built a generic, config-driven, and intuitive UI component, seamlessly integrated into Tableau dashboards and reports. This solution empowers users to visualize data, make real-time edits at both the data and report levels, and add commentary—all within a single, user-friendly interface. Beyond functionality, the team incorporated a customizable and controlled workflow featuring maker and checker capabilities, ensuring compliance with data security policies and maintaining the highest standards of governance.
+
+This first-of-its-kind solution at Barclays reflects the team’s exceptional technical prowess and creative problem-solving. With no precedent to follow, [Team Name] transformed a complex user need into a robust, scalable tool that enhances efficiency and decision-making for TWD users. The feedback has been overwhelmingly positive, with users praising the solution’s practicality and impact—a testament to the team’s commitment to delivering world-class service.
+
+What sets [Team Name] apart is their ability to take ownership of an ambitious challenge and deliver a game-changing tool that not only meets but exceeds expectations. Their innovative approach has unlocked new possibilities for Tableau usage across the firm, paving the way for broader adoption of Writeback functionality. This achievement exemplifies Barclays’ values of simplicity, efficiency, and client-centric innovation, all while pushing the boundaries of what’s possible with in-house development.
+
+[Team Name]’s dedication, technical brilliance, and collaborative spirit make them undeniably deserving of the Exceptional Achievement Award. Their work is a shining example of how bold ideas, executed with precision, can transform the way we serve our business and clients.
