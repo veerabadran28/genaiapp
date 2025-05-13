@@ -1,0 +1,53 @@
+graph TD
+    A[Requirement Document in S3] -->|Input| B(Requirement Analyzer Agent)
+    B -->|Validation Report to Confluence| C{Human Review via Streamlit}
+    C -->|Feedback| B
+    C -->|Approve| D(Technical Documentation Agent)
+    D -->|Tech Specs with Mermaid to Confluence| E{Human Review via Streamlit}
+    E -->|Feedback| D
+    E -->|Approve| F(Task Orchestrator Agent)
+    F -->|Jira Tickets in ESTJIRA| G{Human Review via Streamlit}
+    G -->|Feedback| F
+    G -->|Approve| H(Environment Setup Agent)
+    H -->|Setup Report to Confluence| I{Human Review via Streamlit}
+    I -->|Feedback| H
+    I -->|Approve| J(Code Generator Agent)
+    J -->|Code to GitLab| K{Human Review via Streamlit}
+    K -->|Feedback| J
+    K -->|Approve| L(Test Automation Agent)
+    L -->|Test Report to Confluence| M{Human Review via Streamlit}
+    M -->|Feedback| L
+    M -->|Approve| N(Version Control Agent)
+    N -->|Commits to GitLab| O{Human Review via Streamlit}
+    O -->|Feedback| N
+    O -->|Approve| P(Build Agent)
+    P -->|Docker Image to NEXUS| Q{Human Review via Streamlit}
+    Q -->|Feedback| P
+    Q -->|Approve| R(Deployment Agent)
+    R -->|Deployment Status to Confluence| S{Human Review via Streamlit}
+    S -->|Feedback| R
+    S -->|Approve| T(Monitoring Agent)
+    T -->|Monitoring Report to Confluence| U{Human corsa Review via Streamlit}
+    U -->|Feedback| T
+    U -->|Approve| V(Maintenance Tasks in ESTJIRA)
+    V -->|Feed Back| F
+    W[Workflow Orchestrator Agent] -->|Coordinates| B
+    W -->|Coordinates| D
+    W -->|Coordinates| F
+    W -->|Coordinates| H
+    W -->|Coordinates| J
+    W -->|Coordinates| L
+    W -->|Coordinates| N
+    W -->|Coordinates| P
+    W -->|Coordinates| R
+    W -->|Coordinates| T
+    X[User Input Agent] -->|Collects Inputs via Streamlit| B
+    X -->|Collects Inputs via Streamlit| D
+    X -->|Collects Inputs via Streamlit| F
+    X -->|Collects Inputs via Streamlit| H
+    X -->|Collects Inputs via Streamlit| J
+    X -->|Collects Inputs via Streamlit| L
+    X -->|Collects Inputs via Streamlit| N
+    X -->|Collects Inputs via Streamlit| P
+    X -->|Collects Inputs via Streamlit| R
+    X -->|Collects Inputs via Streamlit| T
