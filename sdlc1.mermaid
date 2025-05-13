@@ -1,0 +1,53 @@
+graph TD
+    A[Requirement Document in S3] -->|Input| B(Requirement Analyzer Agent)
+    B -->|Validation Report to Confluence/PostgreSQL| C{Human Review via Streamlit}
+    C -->|Feedback to PostgreSQL| B
+    C -->|Approve| D(Technical Documentation Agent)
+    D -->|Tech Specs with Mermaid to Confluence/PostgreSQL| E{Human Review via Streamlit}
+    E -->|Feedback to PostgreSQL| D
+    E -->|Approve| F(Task Orchestrator Agent)
+    F -->|Jira Tickets in ESTJIRA/PostgreSQL| G{Human Review via Streamlit}
+    G -->|Feedback to PostgreSQL| F
+    G -->|Approve| H(Environment Setup Agent)
+    H -->|Setup Report to Confluence/PostgreSQL| I{Human Review via Streamlit}
+    I -->|Feedback to PostgreSQL| H
+    I -->|Approve| J(Code Generator Agent)
+    J -->|Code to GitLab/PostgreSQL| K{Human Review via Streamlit}
+    K -->|Feedback to PostgreSQL| J
+    K -->|Approve| L(Test Automation Agent)
+    L -->|Test Report to Confluence/PostgreSQL| M{Human Review via Streamlit}
+    M -->|Feedback to PostgreSQL| L
+    M -->|Approve| N(Version Control Agent)
+    N -->|Commits to GitLab/PostgreSQL| O{Human Review via Streamlit}
+    O -->|Feedback to PostgreSQL| N
+    O -->|Approve| P(Build Agent)
+    P -->|Docker Image to NEXUS/PostgreSQL| Q{Human Review via Streamlit}
+    Q -->|Feedback to PostgreSQL| P
+    Q -->|Approve| R(Deployment Agent)
+    R -->|Deployment Status to Confluence/PostgreSQL| S{Human Review via Streamlit}
+    S -->|Feedback to PostgreSQL| R
+    S -->|Approve| T(Monitoring Agent)
+    T -->|Monitoring Report to Confluence/PostgreSQL| U{Human Review via Streamlit}
+    U -->|Feedback to PostgreSQL| T
+    U -->|Approve| V(Maintenance Tasks in ESTJIRA/PostgreSQL)
+    V -->|Feed Back| F
+    W[Workflow Orchestrator Agent] -->|Coordinates with PostgreSQL| B
+    W -->|Coordinates| D
+    W -->|Coordinates| F
+    W -->|Coordinates| H
+    W -->|Coordinates| J
+    W -->|Coordinates| L
+    W -->|Coordinates| N
+    W -->|Coordinates| P
+    W -->|Coordinates| R
+    W -->|Coordinates| T
+    X[User Input Agent] -->|Collects Inputs via Streamlit to PostgreSQL| B
+    X -->|Collects Inputs| D
+    X -->|Collects Inputs| F
+    X -->|Collects Inputs| H
+    X -->|Collects Inputs| J
+    X -->|Collects Inputs| L
+    X -->|Collects Inputs| N
+    X -->|Collects Inputs| P
+    X -->|Collects Inputs| R
+    X -->|Collects Inputs| T
