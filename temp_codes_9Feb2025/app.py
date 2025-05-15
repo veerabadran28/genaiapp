@@ -3,6 +3,8 @@ from data_loader import load_and_preprocess_data, create_green_revenue_dataset
 from analytics import compare_datasets, calculate_venn_stats
 from visualization import plot_venn_diagram, plot_green_revenue_distribution, plot_country_analysis
 from components.tables import display_data_table
+from components.metrics import display_key_metrics, display_comparison_metrics
+from components.venn import plot_venn_diagram, plot_venn_with_threshold
 
 # Page configuration
 st.set_page_config(
@@ -39,25 +41,24 @@ def main():
     # Load data
     green_revenue, sff_data = load_data()
     
-    # Overview metrics
+    # Overview metrics - replace the col1,col2,col3,col4 section with:
     st.header("📊 Overview Metrics")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Companies", len(green_revenue))
-    with col2:
-        st.metric("Pure Play Companies (≥50%)", 
-                 len(green_revenue[green_revenue['pure_play_flag'] == 'Y']))
-    with col3:
-        st.metric("SFF Pure Play Companies", len(sff_data))
-    with col4:
-        overlap = len(set(green_revenue[green_revenue['pure_play_flag'] == 'Y']['counterparty_id']) & 
-                    set(sff_data['sds']))
-        st.metric("Overlap Between Datasets", overlap)
+    display_key_metrics(venn_stats)
     
-    # Venn diagram section
+    # Venn diagram section - replace with:
     st.header("🔵 Venn Diagram Analysis")
-    venn_stats = calculate_venn_stats(green_revenue, sff_data)
     plot_venn_diagram(venn_stats)
+    
+    # Add threshold comparison
+    st.header("🔍 Threshold Comparison")
+    threshold = st.slider(
+        "Select green revenue threshold (%)",
+        min_value=0,
+        max_value=100,
+        value=30,
+        step=5
+    )
+    plot_venn_with_threshold(green_revenue, sff_data, threshold)
     
     # Additional visualizations
     st.header("📈 Green Revenue Analysis")
