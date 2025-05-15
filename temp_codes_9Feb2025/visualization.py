@@ -53,23 +53,61 @@ def plot_green_revenue_distribution(green_revenue: pd.DataFrame) -> None:
 
 def plot_country_analysis(green_revenue: pd.DataFrame) -> None:
     """
-    Plot analysis of green revenue by country.
+    Plot analysis of green revenue by country with proper country code handling.
     
     Args:
-        green_revenue: GREEN_REVENUE dataset
+        green_revenue: GREEN_REVENUE dataset with country_code column
     """
-    country_stats = green_revenue.groupby('country_code').agg(
-        company_count=('counterparty_id', 'nunique'),
-        avg_green_revenue=('greenRevenuePercent', 'mean')
-    ).reset_index()
+    # Ensure we have country codes and they're clean
+    if 'country_code' not in green_revenue.columns:
+        st.warning("Country code data not available")
+        return
     
+    # Prepare country stats
+    country_stats = (
+        green_revenue
+        .dropna(subset=['country_code'])
+        .assign(country_code=lambda x: x['country_code'].astype(str).str.strip().str.upper())
+        .groupby('country_code')
+        .agg(
+            company_count=('counterparty_id', 'nunique'),
+            avg_green_revenue=('greenRevenuePercent', 'mean'),
+            pure_play_count=('pure_play_flag', lambda x: (x == 'Y').sum())
+        )
+        .reset_index()
+        .query("country_code != 'NAN'")  # Remove any invalid country codes
+    )
+    
+    if country_stats.empty:
+        st.warning("No valid country data available for mapping")
+        return
+    
+    # Create the choropleth map
     fig = px.choropleth(
         country_stats,
         locations='country_code',
+        locationmode='ISO-3',  # Use 3-letter country codes
         color='avg_green_revenue',
         hover_name='country_code',
-        hover_data=['company_count'],
+        hover_data={
+            'company_count': True,
+            'pure_play_count': True,
+            'avg_green_revenue': ':.1f',
+            'country_code': False  # Hide from hover as it's in the name
+        },
         title='Average Green Revenue Percentage by Country',
-        color_continuous_scale='Greens'
+        color_continuous_scale='Greens',
+        projection='natural earth'
     )
+    
+    # Customize the layout
+    fig.update_layout(
+        margin={"r": 0, "t": 40, "l": 0, "b": 0},
+        coloraxis_colorbar={
+            'title': 'Avg Green %',
+            'ticksuffix': '%'
+        }
+    )
+    
+    # Display in Streamlit
     st.plotly_chart(fig, use_container_width=True)
