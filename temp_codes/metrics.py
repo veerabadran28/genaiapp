@@ -28,52 +28,84 @@ class MetricsSection:
         """
         Create a Venn diagram showing dataset overlaps
         """
-        dataset_info = self.data_processor.get_dataset_info()
+        try:
+            dataset_info = self.data_processor.get_dataset_info()
+            
+            # Create a figure
+            plt.figure(figsize=(10, 10))
+            
+            # Create the Venn diagram
+            venn = venn3(
+                subsets=(
+                    dataset_info['pcaf_only'],
+                    dataset_info['llm_only'],
+                    dataset_info['pcaf_llm'],
+                    dataset_info['sff_only'],
+                    dataset_info['pcaf_sff'],
+                    dataset_info['llm_sff'],
+                    dataset_info['all_three']
+                ),
+                set_labels=('PCAF_DATA', 'LLM_GENERATED', 'SFF_DATA')
+            )
+            
+            # Set colors safely
+            if venn:
+                # Set colors for main patches if they exist
+                for patch_id in ['100', '010', '001']:
+                    patch = venn.get_patch_by_id(patch_id)
+                    if patch:
+                        if patch_id == '100':
+                            patch.set_color('#3498db')  # Blue for PCAF
+                        elif patch_id == '010':
+                            patch.set_color('#2ecc71')  # Green for LLM
+                        elif patch_id == '001':
+                            patch.set_color('#e74c3c')  # Red for SFF
+                
+                # Set alpha for better visualization
+                for patch in venn.patches:
+                    if patch:
+                        patch.set_alpha(0.7)
+                
+                # Add subset labels for clearer understanding
+                for label_id, label_text in [
+                    ('100', f'PCAF only\n{dataset_info["pcaf_only"]}'),
+                    ('010', f'LLM only\n{dataset_info["llm_only"]}'),
+                    ('001', f'SFF only\n{dataset_info["sff_only"]}'),
+                    ('110', f'PCAF & LLM\n{dataset_info["pcaf_llm"]}'),
+                    ('101', f'PCAF & SFF\n{dataset_info["pcaf_sff"]}'),
+                    ('011', f'LLM & SFF\n{dataset_info["llm_sff"]}'),
+                    ('111', f'All three\n{dataset_info["all_three"]}')
+                ]:
+                    label = venn.get_label_by_id(label_id)
+                    if label:
+                        label.set_text(label_text)
+            
+            plt.title('Dataset Overlaps', fontsize=16)
+            
+            # Save the figure to a BytesIO object
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+            buf.seek(0)
+            
+            # Return the figure as base64 encoded data
+            return base64.b64encode(buf.read()).decode()
         
-        # Create a figure
-        plt.figure(figsize=(10, 10))
-        
-        # Create the Venn diagram
-        venn = venn3(
-            subsets=(
-                dataset_info['pcaf_only'],
-                dataset_info['llm_only'],
-                dataset_info['pcaf_llm'],
-                dataset_info['sff_only'],
-                dataset_info['pcaf_sff'],
-                dataset_info['llm_sff'],
-                dataset_info['all_three']
-            ),
-            set_labels=('PCAF_DATA', 'LLM_GENERATED', 'SFF_DATA')
-        )
-        
-        # Set colors
-        venn.get_patch_by_id('100').set_color('#3498db')
-        venn.get_patch_by_id('010').set_color('#2ecc71')
-        venn.get_patch_by_id('001').set_color('#e74c3c')
-        
-        # Set alpha for better visualization
-        for patch in venn.patches:
-            patch.set_alpha(0.7)
-        
-        # Add subset labels for clearer understanding
-        venn.get_label_by_id('100').set_text(f'PCAF only\n{dataset_info["pcaf_only"]}')
-        venn.get_label_by_id('010').set_text(f'LLM only\n{dataset_info["llm_only"]}')
-        venn.get_label_by_id('001').set_text(f'SFF only\n{dataset_info["sff_only"]}')
-        venn.get_label_by_id('110').set_text(f'PCAF & LLM\n{dataset_info["pcaf_llm"]}')
-        venn.get_label_by_id('101').set_text(f'PCAF & SFF\n{dataset_info["pcaf_sff"]}')
-        venn.get_label_by_id('011').set_text(f'LLM & SFF\n{dataset_info["llm_sff"]}')
-        venn.get_label_by_id('111').set_text(f'All three\n{dataset_info["all_three"]}')
-        
-        plt.title('Dataset Overlaps', fontsize=16)
-        
-        # Save the figure to a BytesIO object
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-        buf.seek(0)
-        
-        # Return the figure as base64 encoded data
-        return base64.b64encode(buf.read()).decode()
+        except Exception as e:
+            print(f"Error creating Venn diagram: {e}")
+            
+            # Create a simple fallback image with text
+            plt.figure(figsize=(10, 10))
+            plt.text(0.5, 0.5, "Venn diagram could not be created.\nPossibly insufficient data for overlaps.",
+                    horizontalalignment='center', verticalalignment='center', fontsize=14)
+            plt.axis('off')
+            
+            # Save the figure to a BytesIO object
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+            buf.seek(0)
+            
+            # Return the fallback figure as base64 encoded data
+            return base64.b64encode(buf.read()).decode()
     
     def create_green_revenue_distribution(self):
         """
@@ -233,35 +265,77 @@ class MetricsSection:
         """
         Display all metrics and visualizations
         """
-        st.markdown('<div class="section-header"><h2>Metrics and Statistics</h2></div>', unsafe_allow_html=True)
+        try:
+            st.markdown('<div class="section-header"><h2>Metrics and Statistics</h2></div>', unsafe_allow_html=True)
+            
+            # Add information about data processing
+            if self.data_processor.green_revenue_count == 0:
+                st.warning("No GREEN_REVENUE data was generated. Please check your data files.")
+                return
+            
+            # Create two columns for the venn diagram and green revenue distribution
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Dataset Overlaps")
+                try:
+                    venn_diagram = self.create_venn_diagram()
+                    st.image(f"data:image/png;base64,{venn_diagram}", use_column_width=True)
+                except Exception as e:
+                    st.error(f"Error displaying Venn diagram: {e}")
+            
+            with col2:
+                st.subheader("Green Revenue Distribution")
+                try:
+                    if len(self.data_processor.green_revenue) > 0 and 'greenRevenuePercent' in self.data_processor.green_revenue.columns:
+                        fig_green_dist = self.create_green_revenue_distribution()
+                        st.plotly_chart(fig_green_dist, use_container_width=True)
+                    else:
+                        st.warning("Insufficient data for Green Revenue Distribution")
+                except Exception as e:
+                    st.error(f"Error displaying Green Revenue Distribution: {e}")
+            
+            # Create two columns for country distribution and pure play by year
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Top Countries")
+                try:
+                    if len(self.data_processor.green_revenue) > 0 and 'country_code' in self.data_processor.green_revenue.columns:
+                        fig_country = self.create_country_distribution()
+                        st.plotly_chart(fig_country, use_container_width=True)
+                    else:
+                        st.warning("Insufficient data for Country Distribution")
+                except Exception as e:
+                    st.error(f"Error displaying Country Distribution: {e}")
+            
+            with col2:
+                st.subheader("Companies by Year and Pure Play Status")
+                try:
+                    if (len(self.data_processor.green_revenue) > 0 and 
+                        'year' in self.data_processor.green_revenue.columns and 
+                        'pure_play_flag' in self.data_processor.green_revenue.columns):
+                        fig_year = self.create_pure_play_by_year()
+                        st.plotly_chart(fig_year, use_container_width=True)
+                    else:
+                        st.warning("Insufficient data for Year and Pure Play Status chart")
+                except Exception as e:
+                    st.error(f"Error displaying Year and Pure Play Status chart: {e}")
+            
+            # Display revenue vs green percentage as full width
+            st.subheader("Total Revenue vs Green Revenue Percentage")
+            try:
+                if (len(self.data_processor.green_revenue) > 0 and 
+                    'totalRevenue' in self.data_processor.green_revenue.columns and 
+                    'greenRevenuePercent' in self.data_processor.green_revenue.columns and
+                    'pure_play_flag' in self.data_processor.green_revenue.columns):
+                    fig_revenue = self.create_revenue_by_green_pct()
+                    st.plotly_chart(fig_revenue, use_container_width=True)
+                else:
+                    st.warning("Insufficient data for Revenue vs Green Revenue Percentage chart")
+            except Exception as e:
+                st.error(f"Error displaying Revenue vs Green Revenue Percentage chart: {e}")
         
-        # Create two columns for the venn diagram and green revenue distribution
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Dataset Overlaps")
-            venn_diagram = self.create_venn_diagram()
-            st.image(f"data:image/png;base64,{venn_diagram}", use_column_width=True)
-        
-        with col2:
-            st.subheader("Green Revenue Distribution")
-            fig_green_dist = self.create_green_revenue_distribution()
-            st.plotly_chart(fig_green_dist, use_container_width=True)
-        
-        # Create two columns for country distribution and pure play by year
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Top Countries")
-            fig_country = self.create_country_distribution()
-            st.plotly_chart(fig_country, use_container_width=True)
-        
-        with col2:
-            st.subheader("Companies by Year and Pure Play Status")
-            fig_year = self.create_pure_play_by_year()
-            st.plotly_chart(fig_year, use_container_width=True)
-        
-        # Display revenue vs green percentage as full width
-        st.subheader("Total Revenue vs Green Revenue Percentage")
-        fig_revenue = self.create_revenue_by_green_pct()
-        st.plotly_chart(fig_revenue, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error displaying Metrics Section: {e}")
+            st.warning("Please check your data and ensure it's properly formatted according to the requirements.")
