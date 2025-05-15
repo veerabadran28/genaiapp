@@ -64,7 +64,7 @@ class PurePlaySection:
                 orientation='h',
                 color=themes.values,
                 color_continuous_scale='Viridis',
-                title='Top 10 Themes of Pure Play Companies (Overlap)',
+                title='Top 10 Themes of Pure Play Companies (Joined by SDS-counterparty_id)',
                 labels={'x': 'Count', 'y': 'Theme'},
                 text=themes.values
             )
@@ -134,6 +134,9 @@ class PurePlaySection:
         """
         st.markdown('<div class="section-header"><h2>Companies that are classified as pure play in GREEN REVENUE (>=50%)</h2></div>', unsafe_allow_html=True)
         
+        # Add note about joining condition
+        st.info("Note: Companies are matched based on the SDS in SFF_DATA and counterparty_id in GREEN_REVENUE")
+        
         # Get summary stats
         summary_fig, overlap_count, identified_count, unidentified_count = self.create_summary_stats()
         
@@ -168,7 +171,7 @@ class PurePlaySection:
                     'counterparty_name', 'parent_id', 'group_id', 'group_name',
                     'bic_code', 'country_code', 'year', 'totalRevenue',
                     'greenRevenuePercent', 'justification', 'dataSources', 'pure_play_flag'
-                ]],
+                ]] if not self.data_processor.pure_play_overlap.empty else pd.DataFrame(),
                 hide_index=True,
                 height=400,
                 use_container_width=True
@@ -182,7 +185,7 @@ class PurePlaySection:
                     'Pureplay Status', 'SDS', 'Alt SDS', 'Client Name',
                     'Themes', 'Sub Theme', 'TLN', 'SLN', 'CSID',
                     'additional CSID', 'BIC'
-                ]],
+                ]] if not self.data_processor.pure_play_identified.empty else pd.DataFrame(),
                 hide_index=True,
                 height=400,
                 use_container_width=True
@@ -197,7 +200,7 @@ class PurePlaySection:
                     'counterparty_name', 'parent_id', 'group_id', 'group_name',
                     'bic_code', 'country_code', 'year', 'totalRevenue',
                     'greenRevenuePercent', 'justification', 'dataSources', 'pure_play_flag'
-                ]],
+                ]] if not self.data_processor.pure_play_unidentified.empty else pd.DataFrame(),
                 hide_index=True,
                 height=400,
                 use_container_width=True
