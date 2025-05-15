@@ -4,7 +4,7 @@ from analytics import compare_datasets, calculate_venn_stats
 from visualization import plot_venn_diagram, plot_green_revenue_distribution, plot_country_analysis
 from components.tables import display_data_table
 from components.metrics import display_key_metrics, display_comparison_metrics
-from components.venn import plot_venn_diagram, plot_venn_with_threshold
+from components.venn import plot_venn_diagram, plot_venn_with_threshold, plot_three_circle_venn
 
 # Page configuration
 st.set_page_config(
@@ -45,9 +45,24 @@ def main():
     st.header("📊 Overview Metrics")
     display_key_metrics(venn_stats)
     
-    # Venn diagram section - replace with:
+    # Venn diagram section - REPLACE THIS SECTION
     st.header("🔵 Venn Diagram Analysis")
-    plot_venn_diagram(venn_stats)
+    
+    # Calculate statistics first
+    venn_stats = calculate_venn_stats(green_revenue, sff_data)
+    
+    # Display the 3-circle Venn diagram
+    plot_three_circle_venn(venn_stats)
+    
+    # Optional: Add a metrics display below the Venn
+    st.subheader("Venn Diagram Metrics")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Pure Play Companies (≥50%)", f"{venn_stats['pure_play_count']:,}")
+    with col2:
+        st.metric("SFF Companies", f"{venn_stats['sff_data_count']:,}")
+    with col3:
+        st.metric("30-49% Green Revenue", f"{venn_stats['not_pure_but_30_count']:,}")
     
     # Add threshold comparison
     st.header("🔍 Threshold Comparison")
