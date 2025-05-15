@@ -4,6 +4,7 @@ from analytics import calculate_venn_stats, compare_datasets, get_industry_analy
 from visualization import plot_three_circle_venn, plot_green_revenue_distribution, plot_country_analysis
 from components.metrics import display_key_metrics, display_comparison_metrics
 from components.tables import display_data_table
+from components.venn import plot_three_circle_venn
 
 # Page config
 st.set_page_config(
