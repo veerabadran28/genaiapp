@@ -3,6 +3,85 @@ import matplotlib.pyplot as plt
 from matplotlib_venn import venn2
 from typing import Dict
 
+def plot_three_circle_venn(stats: Dict[str, int]) -> None:
+    """
+    Render a 3-circle Venn diagram showing:
+    - LLM Generated (>=50%)
+    - LLM Generated (>=30%)
+    - SFF Data
+    
+    Args:
+        stats: Dictionary containing Venn diagram statistics
+    """
+    # Create figure with custom styling
+    fig, ax = plt.subplots(figsize=(12, 10))
+    fig.patch.set_facecolor('#f5f5f5')
+    ax.set_facecolor('#f5f5f5')
+    
+    # Define the subsets for the 3-circle Venn
+    subsets = (
+        stats['pure_play_count'] - stats['pure_play_in_sff'] - stats['not_pure_but_30_in_sff'],
+        stats['sff_data_count'] - stats['pure_play_in_sff'] - stats['not_pure_but_30_in_sff'],
+        stats['pure_play_in_sff'],
+        stats['not_pure_but_30_count'] - stats['not_pure_but_30_in_sff'],
+        0,  # We're not tracking SFF with <30% separately
+        stats['not_pure_but_30_in_sff']
+    )
+    
+    # Create Venn diagram
+    v = venn3(
+        subsets=subsets,
+        set_labels=('LLM Generated\n(>=50%)', 'SFF Data', 'LLM Generated\n(>=30%)'),
+        set_colors=('#4CAF50', '#2196F3', '#FFC107'),  # Green, Blue, Yellow
+        alpha=0.7
+    )
+    
+    # Customize labels
+    if v.get_label_by_id('100'):
+        v.get_label_by_id('100').set_text(f"Pure Play\nNot in SFF\n{stats['pure_play_not_in_sff']:,}")
+    if v.get_label_by_id('010'):
+        v.get_label_by_id('010').set_text(f"SFF\nNot in LLM\n{stats['sff_not_in_pure_play']:,}")
+    if v.get_label_by_id('001'):
+        v.get_label_by_id('001').set_text(f"30-49%\nNot in SFF\n{stats['not_pure_but_30_count'] - stats['not_pure_but_30_in_sff']:,}")
+    if v.get_label_by_id('110'):
+        v.get_label_by_id('110').set_text(f"Pure Play\nin SFF\n{stats['pure_play_in_sff']:,}")
+    if v.get_label_by_id('101'):
+        v.get_label_by_id('101').set_text("")  # Empty - no direct relationship
+    if v.get_label_by_id('011'):
+        v.get_label_by_id('011').set_text(f"30-49%\nin SFF\n{stats['not_pure_but_30_in_sff']:,}")
+    if v.get_label_by_id('111'):
+        v.get_label_by_id('111').set_text("")  # Empty
+    
+    # Style the diagram
+    for text in v.set_labels:
+        text.set_fontsize(12)
+        text.set_fontweight('bold')
+    
+    for text in v.subset_labels:
+        if text:  # Only if label exists
+            text.set_fontsize(11)
+    
+    plt.title(
+        "Company Classification by Green Revenue and SFF Inclusion",
+        fontsize=14,
+        pad=20
+    )
+    
+    # Add legend
+    plt.legend(
+        ["Pure Play (≥50%)", "SFF Companies", "Green Revenue (30-49%)"],
+        loc='upper left',
+        bbox_to_anchor=(1, 1)
+    
+    # Display in Streamlit
+    st.pyplot(fig)
+    st.caption(
+        "Three-way Venn diagram showing the relationship between:\n"
+        "- Companies with ≥50% green revenue (Pure Play)\n"
+        "- Companies in the Sustainable Finance Framework (SFF)\n"
+        "- Companies with 30-49% green revenue"
+    )
+    
 def plot_venn_diagram(stats: Dict[str, int]) -> None:
     """
     Render a customized Venn diagram based on the calculated statistics.
