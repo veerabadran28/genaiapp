@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 def clean_join_column(col: pd.Series) -> pd.Series:
-    """Clean join columns by converting to string, stripping whitespace, and lowercasing."""
+    """Standardize join columns."""
     return col.astype(str).str.strip().str.lower()
 
 def compare_datasets(
@@ -12,84 +12,56 @@ def compare_datasets(
     pure_play_filter: str = 'Y'
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Compare GREEN_REVENUE and SFF_DATA datasets based on pure play flag.
+    Compare datasets based on pure play flag.
     
-    Args:
-        green_revenue: GREEN_REVENUE dataset
-        sff_data: SFF dataset
-        pure_play_filter: 'Y' or 'N' to filter pure play companies
-        
     Returns:
-        Tuple containing:
-        - overlap: Companies in both datasets
-        - in_sff_only: Companies only in SFF_DATA
-        - in_green_only: Companies only in GREEN_REVENUE
+        Tuple of (overlap, sff_only, green_only) DataFrames
     """
-    # Filter green_revenue based on pure_play_flag
-    filtered_green = green_revenue[green_revenue['pure_play_flag'] == pure_play_filter].copy()
+    if pure_play_filter not in ['Y', 'N']:
+        raise ValueError("pure_play_filter must be 'Y' or 'N'")
     
-    # Clean join columns
-    filtered_green.loc[:, 'join_key'] = clean_join_column(filtered_green['counterparty_id'])
+    filtered_green = green_revenue[green_revenue['pure_play_flag'] == pure_play_filter].copy()
     sff_data = sff_data.copy()
+    
+    filtered_green.loc[:, 'join_key'] = clean_join_column(filtered_green['counterparty_id'])
     sff_data.loc[:, 'join_key'] = clean_join_column(sff_data['sds'])
     
-    # Find overlaps
     overlap = pd.merge(
         filtered_green,
         sff_data,
-        left_on='join_key',
-        right_on='join_key',
+        on='join_key',
         how='inner'
     )
     
-    # Find in SFF only
-    in_sff_mask = ~sff_data['join_key'].isin(filtered_green['join_key'])
-    in_sff_only = sff_data[in_sff_mask].copy()
+    sff_only = sff_data[~sff_data['join_key'].isin(filtered_green['join_key'])]
+    green_only = filtered_green[~filtered_green['join_key'].isin(sff_data['join_key'])]
     
-    # Find in Green only
-    in_green_mask = ~filtered_green['join_key'].isin(sff_data['join_key'])
-    in_green_only = filtered_green[in_green_mask].copy()
-    
-    return overlap, in_sff_only, in_green_only
+    return overlap, sff_only, green_only
 
 def calculate_venn_stats(
     green_revenue: pd.DataFrame, 
     sff_data: pd.DataFrame
 ) -> Dict[str, int]:
     """
-    Enhanced statistics calculation for 3-circle Venn diagram.
-    
-    Returns:
-        Dictionary with:
-        - pure_play_count: Companies with ≥50% green revenue
-        - sff_data_count: Companies in SFF dataset
-        - not_pure_but_30_count: Companies with 30-49% green revenue
-        - pure_play_in_sff: Pure play companies in SFF
-        - pure_play_not_in_sff: Pure play companies not in SFF
-        - sff_not_in_pure_play: SFF companies not pure play
-        - not_pure_but_30_in_sff: Companies with 30-49% in SFF
+    Calculate statistics for Venn diagram visualization.
     """
-    # Clean data
     green_revenue = green_revenue.copy()
-    green_revenue['join_key'] = clean_join_column(green_revenue['counterparty_id'])
     sff_data = sff_data.copy()
-    sff_data['join_key'] = clean_join_column(sff_data['sds'])
     
-    # Pure play companies (≥50%)
+    green_revenue.loc[:, 'join_key'] = clean_join_column(green_revenue['counterparty_id'])
+    sff_data.loc[:, 'join_key'] = clean_join_column(sff_data['sds'])
+    
     pure_play = green_revenue[green_revenue['pure_play_flag'] == 'Y']
     pure_play_ids = set(pure_play['join_key'])
     
-    # Companies with 30-49% green revenue
     not_pure_but_30 = green_revenue[
         (green_revenue['pure_play_flag'] == 'N') & 
         (green_revenue['greenRevenuePercent'] >= 30)
     ]
     not_pure_but_30_ids = set(not_pure_but_30['join_key'])
     
-    # SFF data IDs
     sff_ids = set(sff_data['join_key'])
     
-    # Calculate all required stats
     stats = {
         'pure_play_count': len(pure_play),
         'sff_data_count': len(sff_data),
@@ -97,43 +69,34 @@ def calculate_venn_stats(
         'pure_play_in_sff': len(pure_play_ids & sff_ids),
         'pure_play_not_in_sff': len(pure_play_ids - sff_ids),
         'sff_not_in_pure_play': len(sff_ids - pure_play_ids),
-        'not_pure_but_30_in_sff': len(not_pure_but_30_ids & sff_ids),
-        'pure_play_and_30_overlap': len(pure_play_ids & not_pure_but_30_ids)  # Should be 0
+        'not_pure_but_30_in_sff': len(not_pure_but_30_ids & sff_ids)
     }
     
     return stats
 
-def get_industry_analysis(
-    green_revenue: pd.DataFrame,
-    sff_data: pd.DataFrame,
-    naics_mapping: Dict[str, str]
-) -> pd.DataFrame:
-    """
-    Analyze green revenue by industry sector.
+def get_industry_analysis(green_revenue: pd.DataFrame) -> pd.DataFrame:
+    """Analyze green revenue by industry sector."""
+    naics_mapping = {
+        '11': 'Agriculture', '21': 'Mining', '22': 'Utilities',
+        '23': 'Construction', '31-33': 'Manufacturing', '42': 'Wholesale',
+        '44-45': 'Retail', '48-49': 'Transport', '51': 'Information',
+        '52': 'Finance', '53': 'Real Estate', '54': 'Professional',
+        '56': 'Admin', '61': 'Education', '62': 'Healthcare',
+        '71': 'Arts', '72': 'Hospitality', '81': 'Services'
+    }
     
-    Args:
-        green_revenue: GREEN_REVENUE dataset
-        sff_data: SFF dataset
-        naics_mapping: Dictionary mapping NAICS codes to industry names
-        
-    Returns:
-        DataFrame with industry analysis
-    """
-    # Create a copy to avoid SettingWithCopyWarning
     analysis_df = green_revenue.copy()
+    analysis_df['naics_prefix'] = analysis_df['naics_code'].astype(str).str[:2]
+    analysis_df['industry_sector'] = analysis_df['naics_prefix'].map(naics_mapping)
     
-    # Map NAICS codes to industry sectors
-    analysis_df['industry_sector'] = analysis_df['naics_code'].astype(str).str[:2].map(naics_mapping)
-    
-    # Group by industry and calculate metrics
     industry_stats = analysis_df.groupby('industry_sector').agg(
         company_count=('counterparty_id', 'nunique'),
         avg_green_revenue=('greenRevenuePercent', 'mean'),
         pure_play_count=('pure_play_flag', lambda x: (x == 'Y').sum())
     ).reset_index()
     
-    # Calculate pure play percentage
-    industry_stats['pure_play_pct'] = (industry_stats['pure_play_count'] / 
-                                      industry_stats['company_count'] * 100)
+    industry_stats['pure_play_pct'] = (
+        industry_stats['pure_play_count'] / industry_stats['company_count'] * 100
+    )
     
     return industry_stats.sort_values('avg_green_revenue', ascending=False)
