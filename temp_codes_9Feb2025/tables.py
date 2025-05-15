@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
-from typing import List
+from typing import List, Optional
 
 def display_data_table(
     df: pd.DataFrame,
     columns: List[str],
     title: str,
-    key: str
+    key: Optional[str] = None  # Made optional with default None
 ) -> None:
     """
     Display a styled data table with the specified columns.
@@ -15,7 +15,7 @@ def display_data_table(
         df: DataFrame to display
         columns: List of columns to show
         title: Section title
-        key: Unique key for Streamlit component
+        key: Optional unique key for Streamlit component
     """
     st.subheader(title)
     
@@ -23,16 +23,12 @@ def display_data_table(
         st.warning("No data available")
         return
     
-    # Select only the requested columns that exist in the DataFrame
     display_cols = [col for col in columns if col in df.columns]
     
-    # Convert to string for display
-    display_df = df[display_cols].astype(str)
-    
-    # Display with Streamlit
     st.dataframe(
-        display_df,
+        df[display_cols],
         use_container_width=True,
         hide_index=True,
-        column_config={col: {"width": "medium"} for col in display_cols}
+        column_config={col: {"width": "medium"} for col in display_cols},
+        key=key  # Pass the key parameter
     )
