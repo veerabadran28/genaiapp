@@ -26,61 +26,74 @@ class MetricsSection:
     
     def create_venn_diagram(self):
         """
-        Create a Venn diagram showing dataset overlaps
+        Create a Venn diagram showing dataset overlaps based on the reference image
         """
         try:
-            dataset_info = self.data_processor.get_dataset_info()
-            
             # Create a figure
             plt.figure(figsize=(10, 10))
             
-            # Create the Venn diagram
-            venn = venn3(
-                subsets=(
-                    dataset_info['pcaf_only'],
-                    dataset_info['llm_only'],
-                    dataset_info['pcaf_llm'],
-                    dataset_info['sff_only'],
-                    dataset_info['pcaf_sff'],
-                    dataset_info['llm_sff'],
-                    dataset_info['all_three']
-                ),
-                set_labels=('PCAF_DATA', 'LLM_GENERATED', 'SFF_DATA')
-            )
+            # Create sets for the three datasets
+            # PCAF_DATA = circle on the left
+            # LLM_GENERATED = circle on the top
+            # SFF_DATA = circle on the bottom right
             
-            # Set colors safely
-            if venn:
-                # Set colors for main patches if they exist
-                for patch_id in ['100', '010', '001']:
-                    patch = venn.get_patch_by_id(patch_id)
-                    if patch:
-                        if patch_id == '100':
-                            patch.set_color('#3498db')  # Blue for PCAF
-                        elif patch_id == '010':
-                            patch.set_color('#2ecc71')  # Green for LLM
-                        elif patch_id == '001':
-                            patch.set_color('#e74c3c')  # Red for SFF
-                
-                # Set alpha for better visualization
-                for patch in venn.patches:
-                    if patch:
-                        patch.set_alpha(0.7)
-                
-                # Add subset labels for clearer understanding
-                for label_id, label_text in [
-                    ('100', f'PCAF only\n{dataset_info["pcaf_only"]}'),
-                    ('010', f'LLM only\n{dataset_info["llm_only"]}'),
-                    ('001', f'SFF only\n{dataset_info["sff_only"]}'),
-                    ('110', f'PCAF & LLM\n{dataset_info["pcaf_llm"]}'),
-                    ('101', f'PCAF & SFF\n{dataset_info["pcaf_sff"]}'),
-                    ('011', f'LLM & SFF\n{dataset_info["llm_sff"]}'),
-                    ('111', f'All three\n{dataset_info["all_three"]}')
-                ]:
-                    label = venn.get_label_by_id(label_id)
-                    if label:
-                        label.set_text(label_text)
+            # Create a custom Venn3 with just the circles
+            from matplotlib_venn import Venn3
+            from matplotlib.patches import Circle
             
-            plt.title('Dataset Overlaps', fontsize=16)
+            # Create the figure and axis
+            fig, ax = plt.subplots(figsize=(10, 10))
+            
+            # Set up coordinates for three circles
+            radius = 1.2
+            circle1_center = (1.0, 1.5)  # PCAF_DATA (left)
+            circle2_center = (2.5, 2.5)  # LLM_GENERATED (top)
+            circle3_center = (3.0, 1.0)  # SFF_DATA (bottom right)
+            
+            # Create the circles
+            circle1 = Circle(circle1_center, radius, alpha=0.4, edgecolor='blue', facecolor='#3498db', label='PCAF_DATA')
+            circle2 = Circle(circle2_center, radius, alpha=0.4, edgecolor='green', facecolor='#2ecc71', label='LLM_GENERATED')
+            circle3 = Circle(circle3_center, radius, alpha=0.4, edgecolor='red', facecolor='#e74c3c', label='SFF_DATA')
+            
+            # Add the circles to the plot
+            ax.add_patch(circle1)
+            ax.add_patch(circle2)
+            ax.add_patch(circle3)
+            
+            # Add labels to the circles
+            ax.annotate('PCAF_DATA', xy=(circle1_center[0]-0.5, circle1_center[1]), fontsize=12, weight='bold')
+            ax.annotate('LLM_GENERATED', xy=(circle2_center[0]-0.7, circle2_center[1]+0.3), fontsize=12, weight='bold')
+            ax.annotate('SFF_DATA', xy=(circle3_center[0]-0.2, circle3_center[1]-0.5), fontsize=12, weight='bold')
+            
+            # Dataset counts - get from data_processor
+            dataset_info = self.data_processor.get_dataset_info()
+            
+            # Add labels for overlapping regions according to the hand-drawn image
+            
+            # Companies in PCAF but not in other datasets
+            ax.annotate(f"Companies in\nPCAF_DATA\nBUT NOT PART\nOF SFF_DATA", 
+                       xy=(circle1_center[0]-0.7, circle1_center[1]+0.5), fontsize=10)
+            
+            # Companies in SFF but not in others
+            ax.annotate(f"Companies in\nSFF_DATA\nBUT NOT IN\nLLM_GENERATED", 
+                       xy=(circle3_center[0]+0.2, circle3_center[1]-0.2), fontsize=10)
+            
+            # Companies common between LLM and SFF
+            ax.annotate(f"Companies\nCOMMON\nTO BOTH SFF_DATA &\nLLM_GENERATED", 
+                       xy=(2.8, 1.8), fontsize=10)
+            
+            # Set the limits of the plot
+            ax.set_xlim(0, 5)
+            ax.set_ylim(0, 4)
+            
+            # Remove axis ticks and labels
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_aspect('equal')
+            
+            # Remove axis border
+            for spine in ax.spines.values():
+                spine.set_visible(False)
             
             # Save the figure to a BytesIO object
             buf = io.BytesIO()
