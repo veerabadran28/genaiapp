@@ -57,33 +57,29 @@ def calculate_venn_stats(
     sff_data: pd.DataFrame
 ) -> Dict[str, int]:
     """
-    Calculate statistics for Venn diagram.
+    Enhanced statistics calculation for 3-circle Venn diagram.
     
-    Args:
-        green_revenue: GREEN_REVENUE dataset
-        sff_data: SFF dataset
-        
     Returns:
-        Dictionary with counts for each Venn diagram section containing:
-        - pure_play_count: Number of pure play companies (≥50%)
-        - sff_data_count: Number of companies in SFF data
-        - pure_play_in_sff: Pure play companies also in SFF
+        Dictionary with:
+        - pure_play_count: Companies with ≥50% green revenue
+        - sff_data_count: Companies in SFF dataset
+        - not_pure_but_30_count: Companies with 30-49% green revenue
+        - pure_play_in_sff: Pure play companies in SFF
         - pure_play_not_in_sff: Pure play companies not in SFF
         - sff_not_in_pure_play: SFF companies not pure play
-        - not_pure_but_30_count: Companies with 30-49% green revenue
         - not_pure_but_30_in_sff: Companies with 30-49% in SFF
     """
-    # Clean join columns
+    # Clean data
     green_revenue = green_revenue.copy()
-    green_revenue.loc[:, 'join_key'] = clean_join_column(green_revenue['counterparty_id'])
+    green_revenue['join_key'] = clean_join_column(green_revenue['counterparty_id'])
     sff_data = sff_data.copy()
-    sff_data.loc[:, 'join_key'] = clean_join_column(sff_data['sds'])
+    sff_data['join_key'] = clean_join_column(sff_data['sds'])
     
     # Pure play companies (≥50%)
     pure_play = green_revenue[green_revenue['pure_play_flag'] == 'Y']
     pure_play_ids = set(pure_play['join_key'])
     
-    # Not pure play but ≥30%
+    # Companies with 30-49% green revenue
     not_pure_but_30 = green_revenue[
         (green_revenue['pure_play_flag'] == 'N') & 
         (green_revenue['greenRevenuePercent'] >= 30)
@@ -93,15 +89,16 @@ def calculate_venn_stats(
     # SFF data IDs
     sff_ids = set(sff_data['join_key'])
     
-    # Calculate counts
+    # Calculate all required stats
     stats = {
         'pure_play_count': len(pure_play),
         'sff_data_count': len(sff_data),
+        'not_pure_but_30_count': len(not_pure_but_30),
         'pure_play_in_sff': len(pure_play_ids & sff_ids),
         'pure_play_not_in_sff': len(pure_play_ids - sff_ids),
         'sff_not_in_pure_play': len(sff_ids - pure_play_ids),
-        'not_pure_but_30_count': len(not_pure_but_30),
-        'not_pure_but_30_in_sff': len(not_pure_but_30_ids & sff_ids)
+        'not_pure_but_30_in_sff': len(not_pure_but_30_ids & sff_ids),
+        'pure_play_and_30_overlap': len(pure_play_ids & not_pure_but_30_ids)  # Should be 0
     }
     
     return stats
