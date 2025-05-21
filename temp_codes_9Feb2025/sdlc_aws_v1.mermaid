@@ -1,0 +1,87 @@
+flowchart TD
+    %% Styling
+    classDef requirements fill:#f9d5e5,stroke:#333,stroke-width:2px,color:#000;
+    classDef design fill:#ffebcc,stroke:#333,stroke-width:2px,color:#000;
+    classDef development fill:#c4e7c4,stroke:#333,stroke-width:2px,color:#000;
+    classDef testing fill:#d4e7f7,stroke:#333,stroke-width:2px,color:#000;
+    classDef deployment fill:#e0daf7,stroke:#333,stroke-width:2px,color:#000;
+    classDef monitoring fill:#ffeedd,stroke:#333,stroke-width:2px,color:#000;
+    classDef infrastructure fill:#dddddd,stroke:#333,stroke-width:2px,color:#000;
+    
+    %% SDLC Phases with Agentic AI
+    subgraph Requirements [Requirements Phase]
+        R1[User<br>Requirements Input]:::requirements
+        R2[Requirement Validator Agent<br>Claude 3.5-powered]:::requirements
+        R3[Requirements Validation<br>Report]:::requirements
+        R1 --> R2 --> R3
+    end
+    
+    subgraph Design [Design Phase]
+        D1[Tech Doc Generator Agent<br>Claude 3.5-powered]:::design
+        D2[Task Orchestrator Agent<br>Claude 3.5-powered]:::design
+        D3[Technical Specifications<br>& Task Planning]:::design
+        D1 --> D3
+        D2 --> D3
+    end
+    
+    subgraph Development [Development Phase]
+        Dev1[Environment Setup Agent<br>GitLab API Integration]:::development
+        Dev2[Code Generator Agent<br>Claude 3.5-powered]:::development
+        Dev3[Version Control Agent<br>GitLab API Integration]:::development
+        Dev4[Source Code Repository<br>& Version Management]:::development
+        Dev1 --> Dev2 --> Dev3 --> Dev4
+    end
+    
+    subgraph Testing [Testing Phase]
+        T1[Test Automation Agent<br>Claude 3.5 & Pytest]:::testing
+        T2[Automated Tests<br>& Quality Assurance]:::testing
+        T3[Code Quality Analysis<br>SonarQube Integration]:::testing
+        T1 --> T2
+        Dev4 --> T3
+    end
+    
+    subgraph Deployment [Deployment Phase]
+        Dep1[Build Agent<br>Docker Integration]:::deployment
+        Dep2[Deployment Agent<br>Kubernetes Integration]:::deployment
+        Dep3[Containerized Application<br>Deployment]:::deployment
+        Dep1 --> Dep2 --> Dep3
+    end
+    
+    subgraph Monitoring [Monitoring & Maintenance]
+        M1[Monitoring Agent<br>CloudWatch Integration]:::monitoring
+        M2[Performance Metrics<br>& Issue Tracking]:::monitoring
+        M1 --> M2
+    end
+    
+    subgraph Infrastructure [Shared Infrastructure]
+        I1[AWS Step Functions<br>Workflow Orchestration]:::infrastructure
+        I2[Amazon SQS<br>Task Queue]:::infrastructure
+        I3[ElastiCache Redis<br>In-Memory State]:::infrastructure
+        I4[Amazon DynamoDB<br>Persistent Storage]:::infrastructure
+        I5[Human-in-the-Loop<br>Feedback & Approvals]:::infrastructure
+    end
+    
+    %% SDLC Phase Flow
+    Requirements --> Design
+    Design --> Development
+    Development --> Testing
+    Testing --> Deployment
+    Deployment --> Monitoring
+    Monitoring -.-> Requirements
+    
+    %% Infrastructure connections
+    Infrastructure --- Requirements
+    Infrastructure --- Design
+    Infrastructure --- Development
+    Infrastructure --- Testing
+    Infrastructure --- Deployment
+    Infrastructure --- Monitoring
+    
+    %% External integrations
+    Design --- ExtInt1[Confluence<br>Documentation]
+    Design --- ExtInt2[ESTJIRA<br>Task Tracking]
+    Development --- ExtInt3[GitLab<br>Version Control/CI/CD]
+    Testing --- ExtInt4[SonarQube<br>Code Analysis]
+    Deployment --- ExtInt5[NEXUS<br>Artifact Repository]
+    Deployment --- ExtInt6[Amazon EKS<br>Application Hosting]
+    Monitoring --- ExtInt7[CloudWatch<br>Monitoring & Logging]
