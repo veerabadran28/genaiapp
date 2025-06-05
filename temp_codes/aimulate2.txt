@@ -1,0 +1,914 @@
+# Azure AI Search End-to-End Setup for Bank Earnings PDFs
+
+## Prerequisites
+- Azure subscription
+- Azure AI Search service
+- Azure Blob Storage account
+- Azure OpenAI service (for embeddings)
+
+## 1. Azure Portal Configuration
+
+### Step 1: Create Azure AI Search Service
+1. Navigate to Azure Portal → Create Resource → Azure AI Search
+2. Configure:
+   - **Pricing Tier**: Basic or higher (for semantic search)
+   - **Replica count**: 1-3 (based on query volume)
+   - **Partition count**: 1-3 (based on data size)
+
+### Step 2: Configure Azure Blob Storage
+1. Create storage account if not exists
+2. Create container for PDF files
+3. Upload your 6 bank earnings PDFs
+4. Note connection string and container name
+
+### Step 3: Create Data Source
+```json
+{
+  "name": "bank-earnings-datasource",
+  "type": "azureblob",
+  "credentials": {
+    "connectionString": "DefaultEndpointsProtocol=https;AccountName=<account>;AccountKey=<key>"
+  },
+  "container": {
+    "name": "earnings-pdfs",
+    "query": "*.pdf"
+  }
+}
+```
+
+### Step 4: Create Skillset for PDF Processing
+```json
+{
+  "name": "bank-earnings-skillset",
+  "skills": [
+    {
+      "@odata.type": "#Microsoft.Skills.Vision.OcrSkill",
+      "context": "/document/normalized_images/*",
+      "defaultLanguageCode": "en",
+      "inputs": [
+        {
+          "name": "image",
+          "source": "/document/normalized_images/*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "targetName": "text"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.MergeSkill",
+      "context": "/document",
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/content"
+        },
+        {
+          "name": "itemsToInsert",
+          "source": "/document/normalized_images/*/text"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mergedText",
+          "targetName": "merged_content"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.SplitSkill",
+      "context": "/document",
+      "textSplitMode": "pages",
+      "maximumPageLength": 2000,
+      "pageOverlapLength": 200,
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/merged_content"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "textItems",
+          "targetName": "pages"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
+      "context": "/document/pages/*",
+      "resourceUri": "https://<your-openai-service>.openai.azure.com",
+      "apiKey": "<your-api-key>",
+      "deploymentId": "text-embedding-ada-002",
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/pages/*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "embedding",
+          "targetName": "text_vector"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Step 5: Create Index Schema
+```json
+{
+  "name": "bank-earnings-index",
+  "fields": [
+    {
+      "name": "id",
+      "type": "Edm.String",
+      "key": true,
+      "searchable": false
+    },
+    {
+      "name": "content",
+      "type": "Edm.String",
+      "searchable": true,
+      "retrievable": true,
+      "analyzer": "en.microsoft"
+    },
+    {
+      "name": "metadata_storage_name",
+      "type": "Edm.String",
+      "searchable": true,
+      "retrievable": true,
+      "facetable": true
+    },
+    {
+      "name": "bank_name",
+      "type": "Edm.String",
+      "searchable": true,
+      "retrievable": true,
+      "facetable": true
+    },
+    {
+      "name": "document_type",
+      "type": "Edm.String",
+      "searchable": true,
+      "retrievable": true,
+      "facetable": true
+    },
+    {
+      "name": "text_vector",
+      "type": "Collection(Edm.Single)",
+      "searchable": true,
+      "retrievable": false,
+      "dimensions": 1536,
+      "vectorSearchProfile": "vector-profile"
+    }
+  ],
+  "vectorSearch": {
+    "profiles": [
+      {
+        "name": "vector-profile",
+        "algorithm": "hnsw-config"
+      }
+    ],
+    "algorithms": [
+      {
+        "name": "hnsw-config",
+        "kind": "hnsw",
+        "hnswParameters": {
+          "metric": "cosine",
+          "m": 4,
+          "efConstruction": 400,
+          "efSearch": 500
+        }
+      }
+    ]
+  },
+  "semantic": {
+    "configurations": [
+      {
+        "name": "semantic-config",
+        "prioritizedFields": {
+          "contentFields": [
+            {
+              "fieldName": "content"
+            }
+          ],
+          "titleFields": [
+            {
+              "fieldName": "metadata_storage_name"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+### Step 6: Create Indexer
+```json
+{
+  "name": "bank-earnings-indexer",
+  "dataSourceName": "bank-earnings-datasource",
+  "targetIndexName": "bank-earnings-index",
+  "skillsetName": "bank-earnings-skillset",
+  "schedule": {
+    "interval": "PT2H"
+  },
+  "parameters": {
+    "configuration": {
+      "imageAction": "generateNormalizedImages",
+      "dataToExtract": "contentAndMetadata",
+      "parsingMode": "default"
+    }
+  },
+  "fieldMappings": [
+    {
+      "sourceFieldName": "metadata_storage_path",
+      "targetFieldName": "id",
+      "mappingFunction": {
+        "name": "base64Encode"
+      }
+    },
+    {
+      "sourceFieldName": "content",
+      "targetFieldName": "content"
+    },
+    {
+      "sourceFieldName": "metadata_storage_name",
+      "targetFieldName": "metadata_storage_name"
+    }
+  ],
+  "outputFieldMappings": [
+    {
+      "sourceFieldName": "/document/pages/*",
+      "targetFieldName": "content"
+    },
+    {
+      "sourceFieldName": "/document/pages/*/text_vector",
+      "targetFieldName": "text_vector"
+    }
+  ]
+}
+```
+
+## 2. Required Python Packages
+```bash
+pip install azure-search-documents azure-identity openai streamlit python-dotenv
+```
+
+## 3. Environment Variables (.env file)
+```
+AZURE_SEARCH_SERVICE_ENDPOINT=https://<your-service>.search.windows.net
+AZURE_SEARCH_ADMIN_KEY=<your-admin-key>
+AZURE_SEARCH_INDEX_NAME=bank-earnings-index
+AZURE_OPENAI_ENDPOINT=https://<your-openai-service>.openai.azure.com
+AZURE_OPENAI_API_KEY=<your-openai-key>
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
+```
+
+
+======================================================================================================================================
+
+# Search Client with Hybrid Code
+
+import os
+import openai
+from azure.search.documents import SearchClient
+from azure.search.documents.models import VectorizedQuery
+from azure.core.credentials import AzureKeyCredential
+from typing import List, Dict, Any
+import json
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+class BankEarningsSearchClient:
+    def __init__(self):
+        # Azure Search configuration
+        self.search_endpoint = os.getenv("AZURE_SEARCH_SERVICE_ENDPOINT")
+        self.search_key = os.getenv("AZURE_SEARCH_ADMIN_KEY")
+        self.index_name = os.getenv("AZURE_SEARCH_INDEX_NAME")
+        
+        # Azure OpenAI configuration
+        self.openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        self.openai_key = os.getenv("AZURE_OPENAI_API_KEY")
+        self.embedding_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+        self.chat_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+        
+        # Initialize clients
+        self.search_client = SearchClient(
+            endpoint=self.search_endpoint,
+            index_name=self.index_name,
+            credential=AzureKeyCredential(self.search_key)
+        )
+        
+        # Configure OpenAI client
+        openai.api_type = "azure"
+        openai.api_base = self.openai_endpoint
+        openai.api_key = self.openai_key
+        openai.api_version = "2023-05-15"
+    
+    def get_embedding(self, text: str) -> List[float]:
+        """Generate embedding for given text using Azure OpenAI"""
+        try:
+            response = openai.Embedding.create(
+                engine=self.embedding_deployment,
+                input=text.replace("\n", " ")
+            )
+            return response['data'][0]['embedding']
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            return []
+    
+    def hybrid_search(self, 
+                     query: str, 
+                     top_k: int = 5,
+                     semantic_config: str = "semantic-config",
+                     bank_filter: str = None) -> List[Dict[str, Any]]:
+        """
+        Perform hybrid search combining keyword, vector, and semantic search
+        """
+        # Generate embedding for the query
+        query_vector = self.get_embedding(query)
+        
+        if not query_vector:
+            # Fallback to keyword search only
+            return self.keyword_search(query, top_k, bank_filter)
+        
+        # Create vector query
+        vector_query = VectorizedQuery(
+            vector=query_vector,
+            k_nearest_neighbors=top_k,
+            fields="text_vector"
+        )
+        
+        # Build filter string
+        filter_expr = None
+        if bank_filter:
+            filter_expr = f"bank_name eq '{bank_filter}'"
+        
+        try:
+            # Perform hybrid search
+            results = self.search_client.search(
+                search_text=query,
+                vector_queries=[vector_query],
+                query_type="semantic",
+                semantic_configuration_name=semantic_config,
+                query_caption="extractive",
+                query_answer="extractive",
+                top=top_k,
+                filter=filter_expr,
+                select=["content", "metadata_storage_name", "bank_name", "document_type"]
+            )
+            
+            search_results = []
+            for result in results:
+                # Extract semantic captions if available
+                captions = []
+                if hasattr(result, '@search.captions') and result['@search.captions']:
+                    captions = [caption.text for caption in result['@search.captions']]
+                
+                search_results.append({
+                    "content": result.get("content", ""),
+                    "file_name": result.get("metadata_storage_name", ""),
+                    "bank_name": result.get("bank_name", ""),
+                    "document_type": result.get("document_type", ""),
+                    "score": result.get("@search.score", 0),
+                    "captions": captions,
+                    "reranker_score": result.get("@search.reranker_score", 0)
+                })
+            
+            return search_results
+            
+        except Exception as e:
+            print(f"Error in hybrid search: {e}")
+            return self.keyword_search(query, top_k, bank_filter)
+    
+    def keyword_search(self, 
+                      query: str, 
+                      top_k: int = 5, 
+                      bank_filter: str = None) -> List[Dict[str, Any]]:
+        """Fallback keyword search"""
+        filter_expr = None
+        if bank_filter:
+            filter_expr = f"bank_name eq '{bank_filter}'"
+        
+        try:
+            results = self.search_client.search(
+                search_text=query,
+                top=top_k,
+                filter=filter_expr,
+                select=["content", "metadata_storage_name", "bank_name", "document_type"]
+            )
+            
+            search_results = []
+            for result in results:
+                search_results.append({
+                    "content": result.get("content", ""),
+                    "file_name": result.get("metadata_storage_name", ""),
+                    "bank_name": result.get("bank_name", ""),
+                    "document_type": result.get("document_type", ""),
+                    "score": result.get("@search.score", 0),
+                    "captions": [],
+                    "reranker_score": 0
+                })
+            
+            return search_results
+            
+        except Exception as e:
+            print(f"Error in keyword search: {e}")
+            return []
+    
+    def generate_answer(self, query: str, search_results: List[Dict[str, Any]]) -> str:
+        """Generate answer using GPT based on search results"""
+        if not search_results:
+            return "I couldn't find relevant information to answer your question."
+        
+        # Prepare context from search results
+        context_parts = []
+        for idx, result in enumerate(search_results[:3]):  # Use top 3 results
+            bank = result.get("bank_name", "Unknown Bank")
+            file_name = result.get("file_name", "")
+            content = result.get("content", "")[:1000]  # Limit content length
+            
+            context_parts.append(f"Source {idx+1} ({bank} - {file_name}):\n{content}")
+        
+        context = "\n\n".join(context_parts)
+        
+        # Create prompt for GPT
+        prompt = f"""
+Based on the following information from bank earnings documents, please answer the user's question.
+
+Context:
+{context}
+
+Question: {query}
+
+Please provide a comprehensive answer based on the information available. If the information is insufficient to fully answer the question, please indicate what additional information might be needed. Include relevant bank names and figures when available.
+
+Answer:"""
+        
+        try:
+            response = openai.ChatCompletion.create(
+                engine=self.chat_deployment,
+                messages=[
+                    {"role": "system", "content": "You are a financial analyst expert helping users understand bank earnings information. Provide accurate, detailed responses based on the provided context."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1000,
+                temperature=0.1
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            print(f"Error generating answer: {e}")
+            # Fallback response
+            summary = f"Based on the search results from {len(search_results)} documents, here's what I found:\n\n"
+            for result in search_results[:2]:
+                bank = result.get("bank_name", "Unknown Bank")
+                content_snippet = result.get("content", "")[:200] + "..."
+                summary += f"From {bank}: {content_snippet}\n\n"
+            
+            return summary
+    
+    def search_and_answer(self, query: str, bank_filter: str = None, top_k: int = 5) -> Dict[str, Any]:
+        """Complete search and answer pipeline"""
+        # Perform hybrid search
+        search_results = self.hybrid_search(query, top_k, bank_filter=bank_filter)
+        
+        # Generate answer
+        answer = self.generate_answer(query, search_results)
+        
+        return {
+            "answer": answer,
+            "search_results": search_results,
+            "query": query,
+            "bank_filter": bank_filter
+        }
+
+# Example usage
+if __name__ == "__main__":
+    client = BankEarningsSearchClient()
+    
+    # Test query
+    result = client.search_and_answer("What was the net interest income for Q3 2024?")
+    
+    print("Answer:", result["answer"])
+    print(f"\nFound {len(result['search_results'])} relevant documents")
+    
+    for idx, doc in enumerate(result["search_results"][:3]):
+        print(f"\nSource {idx+1}: {doc['bank_name']} - {doc['file_name']}")
+        print(f"Score: {doc['score']:.3f}")
+        print(f"Content preview: {doc['content'][:200]}...")
+
+===================================
+
+Streamlit App for Bank Earnings
+
+import streamlit as st
+import time
+from azure_search_client import BankEarningsSearchClient
+import pandas as pd
+
+# Configure Streamlit page
+st.set_page_config(
+    page_title="Bank Earnings AI Search",
+    page_icon="🏦",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        color: #1f4e79;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .search-box {
+        background-color: #f0f8ff;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border-left: 5px solid #1f4e79;
+        margin: 1rem 0;
+    }
+    .result-card {
+        background-color: #ffffff;
+        padding: 1.5rem;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .source-info {
+        background-color: #f8f9fa;
+        padding: 0.8rem;
+        border-radius: 5px;
+        margin: 0.5rem 0;
+        border-left: 3px solid #28a745;
+    }
+    .metric-box {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+        margin: 0.5rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if 'search_client' not in st.session_state:
+    st.session_state.search_client = None
+if 'search_history' not in st.session_state:
+    st.session_state.search_history = []
+
+@st.cache_resource
+def initialize_search_client():
+    """Initialize and cache the search client"""
+    try:
+        return BankEarningsSearchClient()
+    except Exception as e:
+        st.error(f"Failed to initialize search client: {str(e)}")
+        return None
+
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🏦 Bank Earnings AI Search</h1>', unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Initialize search client
+    if st.session_state.search_client is None:
+        with st.spinner("Initializing search client..."):
+            st.session_state.search_client = initialize_search_client()
+    
+    if st.session_state.search_client is None:
+        st.error("❌ Could not initialize the search client. Please check your configuration.")
+        st.info("Make sure your .env file contains all required Azure credentials.")
+        return
+    
+    # Sidebar for settings
+    with st.sidebar:
+        st.header("🔧 Search Settings")
+        
+        # Bank filter
+        bank_options = ["All Banks", "JP Morgan", "Bank of America", "Wells Fargo", 
+                       "Citigroup", "Goldman Sachs", "Morgan Stanley"]
+        selected_bank = st.selectbox("Filter by Bank:", bank_options)
+        bank_filter = None if selected_bank == "All Banks" else selected_bank
+        
+        # Number of results
+        top_k = st.slider("Number of results:", min_value=1, max_value=10, value=5)
+        
+        # Search history
+        st.header("📜 Recent Searches")
+        if st.session_state.search_history:
+            for i, query in enumerate(reversed(st.session_state.search_history[-5:])):
+                if st.button(f"🔍 {query[:30]}...", key=f"history_{i}"):
+                    st.session_state.current_query = query
+        else:
+            st.info("No recent searches")
+        
+        if st.button("Clear History"):
+            st.session_state.search_history = []
+            st.rerun()
+    
+    # Main search interface
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown('<div class="search-box">', unsafe_allow_html=True)
+        st.subheader("💬 Ask a Question")
+        
+        # Example queries
+        example_queries = [
+            "What was the net interest income trend across all banks?",
+            "How did loan loss provisions change quarter over quarter?",
+            "What are the key risk factors mentioned by banks?",
+            "Compare return on equity across different banks",
+            "What guidance did banks provide for next quarter?"
+        ]
+        
+        with st.expander("💡 Example Questions"):
+            for query in example_queries:
+                if st.button(f"📝 {query}", key=f"example_{query}"):
+                    st.session_state.current_query = query
+        
+        # Main search input
+        if 'current_query' not in st.session_state:
+            st.session_state.current_query = ""
+        
+        query = st.text_area(
+            "Enter your question about bank earnings:",
+            value=st.session_state.current_query,
+            height=100,
+            placeholder="e.g., What was JPMorgan's net interest income in Q3 2024?"
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("<br>" * 3, unsafe_allow_html=True)
+        search_button = st.button("🔍 Search", type="primary", use_container_width=True)
+    
+    # Perform search when button is clicked or query is provided
+    if search_button and query.strip():
+        # Add to search history
+        if query not in st.session_state.search_history:
+            st.session_state.search_history.append(query)
+        
+        # Show loading spinner
+        with st.spinner("🔍 Searching bank earnings documents..."):
+            try:
+                # Perform search
+                result = st.session_state.search_client.search_and_answer(
+                    query=query,
+                    bank_filter=bank_filter,
+                    top_k=top_k
+                )
+                
+                # Display results
+                st.markdown("---")
+                st.subheader("🎯 Answer")
+                
+                # Main answer
+                st.markdown('<div class="result-card">', unsafe_allow_html=True)
+                st.markdown(result["answer"])
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Search results section
+                if result["search_results"]:
+                    st.subheader("📊 Supporting Information")
+                    
+                    # Metrics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.markdown(f'<div class="metric-box"><h3>{len(result["search_results"])}</h3><p>Documents Found</p></div>', unsafe_allow_html=True)
+                    with col2:
+                        avg_score = sum(r.get("score", 0) for r in result["search_results"]) / len(result["search_results"])
+                        st.markdown(f'<div class="metric-box"><h3>{avg_score:.2f}</h3><p>Avg Relevance Score</p></div>', unsafe_allow_html=True)
+                    with col3:
+                        banks_found = len(set(r.get("bank_name", "") for r in result["search_results"]))
+                        st.markdown(f'<div class="metric-box"><h3>{banks_found}</h3><p>Banks Mentioned</p></div>', unsafe_allow_html=True)
+                    
+                    # Detailed results
+                    st.subheader("📄 Source Documents")
+                    
+                    for idx, doc in enumerate(result["search_results"]):
+                        with st.expander(f"📋 Source {idx+1}: {doc.get('bank_name', 'Unknown Bank')} - {doc.get('file_name', '')}"):
+                            col1, col2 = st.columns([2, 1])
+                            
+                            with col1:
+                                st.markdown('<div class="source-info">', unsafe_allow_html=True)
+                                st.markdown(f"**Bank:** {doc.get('bank_name', 'Unknown')}")
+                                st.markdown(f"**Document:** {doc.get('file_name', 'Unknown')}")
+                                st.markdown(f"**Type:** {doc.get('document_type', 'Unknown')}")
+                                st.markdown('</div>', unsafe_allow_html=True)
+                                
+                                # Content preview
+                                content = doc.get("content", "")
+                                if len(content) > 500:
+                                    content = content[:500] + "..."
+                                st.markdown("**Content Preview:**")
+                                st.text(content)
+                                
+                                # Captions if available
+                                if doc.get("captions"):
+                                    st.markdown("**Key Excerpts:**")
+                                    for caption in doc["captions"][:2]:
+                                        st.info(f"📝 {caption}")
+                            
+                            with col2:
+                                st.metric("Relevance Score", f"{doc.get('score', 0):.3f}")
+                                if doc.get('reranker_score', 0) > 0:
+                                    st.metric("Semantic Score", f"{doc.get('reranker_score', 0):.3f}")
+                
+                else:
+                    st.warning("No relevant documents found for your query. Try rephrasing your question or using different keywords.")
+                
+            except Exception as e:
+                st.error(f"❌ Search failed: {str(e)}")
+                st.info("Please check your Azure configuration and try again.")
+    
+    elif search_button and not query.strip():
+        st.warning("⚠️ Please enter a question to search.")
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; color: #666;'>
+        <p>🔍 Powered by Azure AI Search with Hybrid Search Technology</p>
+        <p>💡 Ask questions about bank earnings, financial metrics, risk factors, and more!</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
+
+
+===========================================================
+
+# Deployment Instructions
+
+## Requirements File (requirements.txt)
+```
+streamlit>=1.28.0
+azure-search-documents>=11.4.0
+azure-identity>=1.14.0
+openai>=0.28.0
+python-dotenv>=1.0.0
+pandas>=2.0.0
+```
+
+## Setup Instructions
+
+### 1. Environment Setup
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Configuration
+Create a `.env` file in your project root:
+```env
+AZURE_SEARCH_SERVICE_ENDPOINT=https://your-service.search.windows.net
+AZURE_SEARCH_ADMIN_KEY=your-admin-key
+AZURE_SEARCH_INDEX_NAME=bank-earnings-index
+AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com
+AZURE_OPENAI_API_KEY=your-openai-key
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
+```
+
+### 3. File Structure
+```
+bank-earnings-search/
+├── .env
+├── requirements.txt
+├── azure_search_client.py
+├── streamlit_app.py
+└── README.md
+```
+
+### 4. Running the Application
+```bash
+streamlit run streamlit_app.py
+```
+
+## Additional Configuration Tips
+
+### Bank Name Extraction
+Add a custom skill to extract bank names from filenames:
+```json
+{
+  "@odata.type": "#Microsoft.Skills.Text.RegexSkill",
+  "context": "/document",
+  "inputs": [
+    {
+      "name": "text",
+      "source": "/document/metadata_storage_name"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "bank_name",
+      "targetName": "extracted_bank_name"
+    }
+  ],
+  "pattern": "(JPMorgan|BankofAmerica|WellsFargo|Citigroup|GoldmanSachs|MorganStanley)",
+  "flags": "i"
+}
+```
+
+### Document Type Classification
+Add another skill to classify document types:
+```json
+{
+  "@odata.type": "#Microsoft.Skills.Text.RegexSkill",
+  "context": "/document",
+  "inputs": [
+    {
+      "name": "text",
+      "source": "/document/metadata_storage_name"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "document_type",
+      "targetName": "extracted_doc_type"
+    }
+  ],
+  "pattern": "(earnings|supplement|presentation|call|transcript)",
+  "flags": "i"
+}
+```
+
+### Performance Optimization
+1. **Indexing**: Run indexer during off-peak hours
+2. **Caching**: Implement Redis caching for frequent queries
+3. **Chunking**: Optimize chunk size based on your document length
+4. **Vector Dimensions**: Consider using smaller embeddings for faster search
+
+### Monitoring and Logging
+Add logging to track search performance:
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Add to search methods
+logger.info(f"Search query: {query}")
+logger.info(f"Results found: {len(search_results)}")
+```
+
+### Security Considerations
+1. Use Azure Key Vault for secrets
+2. Implement authentication for production
+3. Set up proper RBAC permissions
+4. Enable search service firewall rules
+
+## Troubleshooting
+
+### Common Issues
+1. **"No module named 'azure'"**: Install azure-search-documents
+2. **"Invalid API key"**: Check your .env file configuration
+3. **"Index not found"**: Ensure indexer has run successfully
+4. **Slow search**: Check your search service tier and replica count
+
+### Testing Your Setup
+```python
+# Test script
+from azure_search_client import BankEarningsSearchClient
+
+client = BankEarningsSearchClient()
+result = client.search_and_answer("Test query")
+print(f"Answer: {result['answer']}")
+```
+
+## Next Steps
+1. Add more sophisticated prompt engineering
+2. Implement conversation memory
+3. Add data visualization features
+4. Create automated reports
+5. Integrate with PowerBI or other dashboards
