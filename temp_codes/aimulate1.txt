@@ -1,0 +1,791 @@
+{
+  "configurations": {
+    "dataSource": {
+      "name": "bank-documents-datasource",
+      "description": "Data source for bank earnings PDFs",
+      "type": "azureblob",
+      "credentials": {
+        "connectionString": "DefaultEndpointsProtocol=https;AccountName=<storage-account>;AccountKey=<key>;EndpointSuffix=core.windows.net"
+      },
+      "container": {
+        "name": "bank-documents",
+        "query": "*.pdf"
+      },
+      "dataDeletionDetectionPolicy": {
+        "@odata.type": "#Microsoft.Azure.Search.SoftDeleteColumnDeletionDetectionPolicy",
+        "softDeleteColumnName": "IsDeleted",
+        "softDeleteMarkerValue": "true"
+      }
+    },
+
+    "skillset": {
+      "name": "bank-documents-skillset",
+      "description": "Skillset for processing bank earnings PDFs",
+      "skills": [
+        {
+          "@odata.type": "#Microsoft.Skills.Vision.OcrSkill",
+          "name": "extract-text-from-images",
+          "context": "/document/normalized_images/*",
+          "defaultLanguageCode": "en",
+          "detectOrientation": true,
+          "inputs": [
+            {
+              "name": "image",
+              "source": "/document/normalized_images/*"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "text",
+              "targetName": "text"
+            }
+          ]
+        },
+        {
+          "@odata.type": "#Microsoft.Skills.Text.MergeSkill",
+          "name": "merge-content",
+          "context": "/document",
+          "insertPreTag": " ",
+          "insertPostTag": " ",
+          "inputs": [
+            {
+              "name": "text",
+              "source": "/document/content"
+            },
+            {
+              "name": "itemsToInsert",
+              "source": "/document/normalized_images/*/text"
+            },
+            {
+              "name": "offsets",
+              "source": "/document/normalized_images/*/contentOffset"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "mergedText",
+              "targetName": "merged_content"
+            }
+          ]
+        },
+        {
+          "@odata.type": "#Microsoft.Skills.Text.SplitSkill",
+          "name": "split-text",
+          "context": "/document",
+          "textSplitMode": "pages",
+          "maximumPageLength": 2000,
+          "pageOverlapLength": 200,
+          "inputs": [
+            {
+              "name": "text",
+              "source": "/document/merged_content"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "textItems",
+              "targetName": "pages"
+            }
+          ]
+        },
+        {
+          "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
+          "name": "generate-embeddings",
+          "context": "/document/pages/*",
+          "resourceUri": "https://<your-openai-service>.openai.azure.com",
+          "apiKey": "<your-openai-key>",
+          "deploymentId": "text-embedding-ada-002",
+          "inputs": [
+            {
+              "name": "text",
+              "source": "/document/pages/*"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "embedding",
+              "targetName": "vector"
+            }
+          ]
+        },
+        {
+          "@odata.type": "#Microsoft.Skills.Text.EntityRecognitionSkill",
+          "name": "extract-entities",
+          "context": "/document/pages/*",
+          "categories": [
+            "Organization",
+            "Person",
+            "Location",
+            "Quantity"
+          ],
+          "defaultLanguageCode": "en",
+          "inputs": [
+            {
+              "name": "text",
+              "source": "/document/pages/*"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "organizations",
+              "targetName": "organizations"
+            },
+            {
+              "name": "persons",
+              "targetName": "persons"
+            },
+            {
+              "name": "locations",
+              "targetName": "locations"
+            },
+            {
+              "name": "quantities",
+              "targetName": "quantities"
+            }
+          ]
+        },
+        {
+          "@odata.type": "#Microsoft.Skills.Text.KeyPhraseExtractionSkill",
+          "name": "extract-keyphrases",
+          "context": "/document/pages/*",
+          "defaultLanguageCode": "en",
+          "inputs": [
+            {
+              "name": "text",
+              "source": "/document/pages/*"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "keyPhrases",
+              "targetName": "keyPhrases"
+            }
+          ]
+        }
+      ],
+      "cognitiveServices": {
+        "@odata.type": "#Microsoft.Azure.Search.CognitiveServicesByKey",
+        "description": "Azure AI Services resource",
+        "key": "<your-cognitive-services-key>"
+      }
+    },
+
+    "index": {
+      "name": "bank-documents-index",
+      "fields": [
+        {
+          "name": "id",
+          "type": "Edm.String",
+          "key": true,
+          "searchable": false,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": false
+        },
+        {
+          "name": "content",
+          "type": "Edm.String",
+          "searchable": true,
+          "filterable": false,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": false,
+          "analyzer": "en.microsoft"
+        },
+        {
+          "name": "contentVector",
+          "type": "Collection(Edm.Single)",
+          "dimensions": 1536,
+          "vectorSearchProfile": "my-vector-profile",
+          "searchable": true,
+          "retrievable": true,
+          "filterable": false,
+          "sortable": false,
+          "facetable": false
+        },
+        {
+          "name": "metadata_storage_name",
+          "type": "Edm.String",
+          "searchable": true,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": true,
+          "facetable": true
+        },
+        {
+          "name": "metadata_storage_path",
+          "type": "Edm.String",
+          "searchable": false,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": false
+        },
+        {
+          "name": "bank_name",
+          "type": "Edm.String",
+          "searchable": true,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": true,
+          "facetable": true
+        },
+        {
+          "name": "document_type",
+          "type": "Edm.String",
+          "searchable": true,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": true,
+          "facetable": true
+        },
+        {
+          "name": "page_number",
+          "type": "Edm.Int32",
+          "searchable": false,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": true,
+          "facetable": false
+        },
+        {
+          "name": "organizations",
+          "type": "Collection(Edm.String)",
+          "searchable": true,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": true
+        },
+        {
+          "name": "keyPhrases",
+          "type": "Collection(Edm.String)",
+          "searchable": true,
+          "filterable": false,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": true
+        },
+        {
+          "name": "quantities",
+          "type": "Collection(Edm.String)",
+          "searchable": true,
+          "filterable": false,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": false
+        },
+        {
+          "name": "persons",
+          "type": "Collection(Edm.String)",
+          "searchable": true,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": true
+        },
+        {
+          "name": "locations",
+          "type": "Collection(Edm.String)",
+          "searchable": true,
+          "filterable": true,
+          "retrievable": true,
+          "sortable": false,
+          "facetable": true
+        }
+      ],
+      "vectorSearch": {
+        "algorithms": [
+          {
+            "name": "my-hnsw-algorithm",
+            "kind": "hnsw",
+            "hnswParameters": {
+              "metric": "cosine",
+              "m": 4,
+              "efConstruction": 400,
+              "efSearch": 500
+            }
+          }
+        ],
+        "profiles": [
+          {
+            "name": "my-vector-profile",
+            "algorithm": "my-hnsw-algorithm"
+          }
+        ]
+      },
+      "semantic": {
+        "defaultConfiguration": "my-semantic-config",
+        "configurations": [
+          {
+            "name": "my-semantic-config",
+            "prioritizedFields": {
+              "titleField": {
+                "fieldName": "metadata_storage_name"
+              },
+              "prioritizedContentFields": [
+                {
+                  "fieldName": "content"
+                }
+              ],
+              "prioritizedKeywordsFields": [
+                {
+                  "fieldName": "keyPhrases"
+                },
+                {
+                  "fieldName": "organizations"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    "indexer": {
+      "name": "bank-documents-indexer",
+      "dataSourceName": "bank-documents-datasource",
+      "targetIndexName": "bank-documents-index",
+      "skillsetName": "bank-documents-skillset",
+      "parameters": {
+        "batchSize": 1,
+        "maxFailedItems": 0,
+        "maxFailedItemsPerBatch": 0,
+        "configuration": {
+          "dataToExtract": "contentAndMetadata",
+          "parsingMode": "default",
+          "imageAction": "generateNormalizedImages",
+          "allowSkillsetToReadFileData": true
+        }
+      },
+      "fieldMappings": [
+        {
+          "sourceFieldName": "metadata_storage_path",
+          "targetFieldName": "id",
+          "mappingFunction": {
+            "name": "base64Encode"
+          }
+        },
+        {
+          "sourceFieldName": "metadata_storage_name",
+          "targetFieldName": "metadata_storage_name"
+        },
+        {
+          "sourceFieldName": "metadata_storage_path",
+          "targetFieldName": "metadata_storage_path"
+        }
+      ],
+      "outputFieldMappings": [
+        {
+          "sourceFieldName": "/document/pages/*",
+          "targetFieldName": "content"
+        },
+        {
+          "sourceFieldName": "/document/pages/*/vector",
+          "targetFieldName": "contentVector"
+        },
+        {
+          "sourceFieldName": "/document/pages/*/organizations",
+          "targetFieldName": "organizations"
+        },
+        {
+          "sourceFieldName": "/document/pages/*/keyPhrases",
+          "targetFieldName": "keyPhrases"
+        },
+        {
+          "sourceFieldName": "/document/pages/*/quantities",
+          "targetFieldName": "quantities"
+        },
+        {
+          "sourceFieldName": "/document/pages/*/persons",
+          "targetFieldName": "persons"
+        },
+        {
+          "sourceFieldName": "/document/pages/*/locations",
+          "targetFieldName": "locations"
+        }
+      ],
+      "schedule": {
+        "interval": "PT24H"
+      }
+    }
+  }
+}
+
+
+--------------------------------------------------------
+
+# Azure AI Search Console Setup Guide - Version 1 (Import Data Wizard)
+
+## Simple Setup Using Import Data Wizard
+
+This is the easiest way to get started with Azure AI Search for your bank PDF documents. The Import Data wizard will automatically create everything you need in one go.
+
+---
+
+## Prerequisites
+- ✅ Azure AI Search service (Basic tier or higher)
+- ✅ Azure Blob Storage with your bank PDF files
+- ✅ Azure AI Services resource (for OCR and text processing)
+
+---
+
+## Step 1: Access Import Data Wizard
+
+### Navigate to Your Search Service
+1. Go to the **Azure portal**
+2. Navigate to your **Azure AI Search service**
+3. On the **Overview** page, click **Import data**
+
+---
+
+## Step 2: Connect to Your Data
+
+### Choose Data Source
+1. **Data Source**: Select **Azure Blob Storage**
+2. **Data source name**: `bank-documents-datasource`
+3. **Data to extract**: Select **Content and metadata**
+4. **Parsing mode**: Select **Default**
+
+### Configure Connection
+1. **Connection string**: Click **Choose an existing connection**
+2. Select your **Storage Account**
+3. Select your **Container** (where your bank PDFs are stored)
+4. **Blob folder** (optional): Leave blank to include all PDFs
+5. **Description**: `Bank earnings and supplement PDFs`
+6. Click **Next: Add cognitive skills**
+
+---
+
+## Step 3: Add Cognitive Skills (AI Enrichment)
+
+### Enable AI Enrichment
+1. **Attach Cognitive Services**: 
+   - Select **Attach Cognitive Services**
+   - Choose your **Azure AI Services** resource
+   - This enables OCR and text processing
+
+### Add Enrichments
+Check these boxes to enable AI skills:
+
+#### Text Cognitive Skills
+- ✅ **Extract people names**
+- ✅ **Extract organization names** 
+- ✅ **Extract location names**
+- ✅ **Extract key phrases**
+
+#### OCR and Text Processing
+- ✅ **Enable OCR and merge all text into merged_content field**
+- ✅ **Break up large documents** 
+  - **Granularity**: Select **Pages**
+  - **Overlapping text**: `200` characters
+
+#### Image Processing (if needed)
+- ✅ **Generate descriptions of images** (optional for charts/graphs)
+
+### Projections (Advanced - Optional)
+Leave this section as default for now.
+
+Click **Next: Customize target index**
+
+---
+
+## Step 4: Customize Target Index
+
+### Index Name
+- **Index name**: `bank-documents-index`
+
+### Review Generated Fields
+The wizard will auto-generate these fields. Verify they're configured correctly:
+
+#### Core Fields (Auto-generated)
+- **content** (Edm.String)
+  - ✅ Retrievable
+  - ✅ Searchable
+  - Analyzer: `en.microsoft`
+
+- **metadata_storage_name** (Edm.String)
+  - ✅ Retrievable
+  - ✅ Searchable
+  - ✅ Filterable
+  - ✅ Facetable
+
+- **metadata_storage_path** (Edm.String)
+  - ✅ Retrievable
+  - ✅ Filterable
+
+#### AI-Enriched Fields (Auto-generated)
+- **people** (Collection(Edm.String))
+  - ✅ Retrievable
+  - ✅ Searchable
+  - ✅ Filterable
+  - ✅ Facetable
+
+- **organizations** (Collection(Edm.String))
+  - ✅ Retrievable
+  - ✅ Searchable
+  - ✅ Filterable
+  - ✅ Facetable
+
+- **locations** (Collection(Edm.String))
+  - ✅ Retrievable
+  - ✅ Searchable
+  - ✅ Filterable
+  - ✅ Facetable
+
+- **keyPhrases** (Collection(Edm.String))
+  - ✅ Retrievable
+  - ✅ Searchable
+  - ✅ Facetable
+
+### Add Custom Fields
+Click **+ Add field** to add these useful fields:
+
+#### Bank Name Field
+- **Field name**: `bank_name`
+- **Type**: `Edm.String`
+- ✅ **Retrievable**
+- ✅ **Searchable**
+- ✅ **Filterable**
+- ✅ **Facetable**
+
+#### Document Type Field
+- **Field name**: `document_type`
+- **Type**: `Edm.String`
+- ✅ **Retrievable**
+- ✅ **Searchable**
+- ✅ **Filterable**
+- ✅ **Facetable**
+
+Click **Next: Create an indexer**
+
+---
+
+## Step 5: Create Indexer
+
+### Indexer Configuration
+- **Name**: `bank-documents-indexer`
+- **Description**: `Process bank earnings PDFs`
+- **Schedule**: Select **Once** (you can change this later)
+
+### Advanced Options
+- **Batch size**: `1` (for large PDF files)
+- **Max failed items**: `0`
+- **Max failed items per batch**: `0`
+
+### Base-64 Encode Keys
+- ✅ **Base-64 encode keys**: Checked (this ensures proper key formatting)
+
+Click **Submit** to create everything
+
+---
+
+## Step 6: Monitor Progress
+
+### Watch the Indexer Run
+1. After clicking Submit, you'll be redirected to the **Indexers** page
+2. Find your `bank-documents-indexer`
+3. **Status** will show:
+   - **In Progress** (while processing)
+   - **Success** (when completed)
+   - **Warning** or **Error** (if issues occur)
+
+### Check Execution Details
+1. Click on the indexer name
+2. View **Execution History**
+3. See **Documents processed** count
+4. Check for any **Errors** or **Warnings**
+
+### Expected Processing Time
+- Small PDFs (1-10 pages): 1-2 minutes each
+- Large PDFs (50+ pages): 5-10 minutes each
+- Total time depends on number and size of documents
+
+---
+
+## Step 7: Test Your Search Index
+
+### Use Search Explorer
+1. Go to **Indexes** in your search service
+2. Click on `bank-documents-index`
+3. Click **Search explorer**
+
+### Test Queries
+Try these search queries:
+
+#### Basic Text Search
+```
+revenue
+```
+
+#### Search All Documents
+```
+*
+```
+
+#### Search with Filters
+```
+search=net interest margin&$filter=organizations/any(o: o eq 'JP Morgan')
+```
+
+#### Faceted Search
+```
+search=*&facet=organizations&facet=keyPhrases
+```
+
+### Expected Results
+- You should see document chunks (not full PDFs)
+- Each result contains content, metadata, and extracted entities
+- Organizations should include bank names
+- Key phrases should include financial terms
+
+---
+
+## Step 8: Manual Enhancements (Optional)
+
+### Add Bank Names to Documents
+Since the wizard might not automatically detect bank names, you have two options:
+
+#### Option A: Update Documents via API
+Use the Python script to add bank names based on file names:
+
+```python
+# Simple script to update bank names
+import re
+
+def extract_bank_name(filename):
+    filename = filename.lower()
+    if 'jpmorgan' in filename or 'jp morgan' in filename:
+        return 'JP Morgan Chase'
+    elif 'bankofamerica' in filename or 'bank of america' in filename:
+        return 'Bank of America'
+    elif 'wells' in filename:
+        return 'Wells Fargo'
+    elif 'citi' in filename:
+        return 'Citigroup'
+    elif 'goldman' in filename:
+        return 'Goldman Sachs'
+    elif 'morgan stanley' in filename:
+        return 'Morgan Stanley'
+    return 'Unknown'
+```
+
+#### Option B: Organize Blob Storage
+Organize your PDFs in folders by bank:
+```
+container/
+├── jpmorgan/
+│   ├── earnings-q1-2024.pdf
+│   └── supplement-q1-2024.pdf
+├── bankofamerica/
+│   ├── earnings-q1-2024.pdf
+│   └── supplement-q1-2024.pdf
+└── ...
+```
+
+### Schedule Regular Updates
+1. Go to **Indexers**
+2. Click on `bank-documents-indexer`
+3. Click **Edit**
+4. Change **Schedule** to:
+   - **Daily** at a specific time
+   - **Hourly** for frequent updates
+5. Click **Save**
+
+---
+
+## Step 9: Verify Your Setup
+
+### Check Index Statistics
+1. Go to **Indexes** → `bank-documents-index`
+2. Verify:
+   - **Document count** > 0
+   - **Storage size** shows data
+   - **Fields** are properly configured
+
+### Test Different Query Types
+
+#### Search for Financial Terms
+```
+search=earnings per share
+search=return on equity
+search=net interest margin
+```
+
+#### Search by Organization
+```
+search=*&$filter=organizations/any(o: o eq 'Morgan')
+```
+
+#### Get Key Phrases
+```
+search=*&facet=keyPhrases&$top=1
+```
+
+### Common Results You Should See
+- **Content**: Extracted text from PDF pages
+- **Organizations**: Bank names, regulatory bodies, etc.
+- **Key Phrases**: Financial terms, metrics, business concepts
+- **People**: Executive names, analysts, etc.
+- **Locations**: Cities, states, countries mentioned
+
+---
+
+## Troubleshooting Common Issues
+
+### Indexer Fails
+**Problem**: Status shows "Error"
+**Solutions**:
+1. Check **Execution History** for error details
+2. Verify blob storage connection
+3. Ensure PDFs are not corrupted or password-protected
+4. Check Azure AI Services resource is active
+
+### No Documents Processed
+**Problem**: Document count is 0
+**Solutions**:
+1. Verify correct container and folder path
+2. Check blob storage permissions
+3. Ensure PDFs exist in the specified location
+4. Try re-running the indexer
+
+### Missing Financial Terms
+**Problem**: Key phrases don't include expected financial terms
+**Solutions**:
+1. Financial documents often use specialized language
+2. The AI will learn financial terms from your documents
+3. Consider adding a custom dictionary skill later
+
+### Large Processing Time
+**Problem**: Indexer takes very long
+**Solutions**:
+1. Reduce batch size to 1
+2. Consider splitting very large PDFs
+3. Monitor for memory issues in execution history
+
+---
+
+## Next Steps
+
+### Once Setup is Complete:
+1. **Test thoroughly** with various search queries
+2. **Document your field mappings** for future reference
+3. **Set up monitoring** for indexer failures
+4. **Plan for regular updates** when new PDFs are added
+
+### For Advanced Features:
+1. Add **vector search** capabilities (see Version 2 guide)
+2. Implement **semantic search** for better relevance
+3. Create **custom skills** for bank-specific processing
+4. Build a **custom application** using the search API
+
+### Integration Options:
+1. Use the **Python search client** I provided earlier
+2. Build a **Streamlit application** for user-friendly access
+3. Integrate with **Power BI** for analytics
+4. Create **custom dashboards** using search results
+
+Your basic Azure AI Search setup is now complete! You can search across all your bank documents using natural language queries and filter by the AI-extracted entities and metadata.
+
+--------------------------------------------
