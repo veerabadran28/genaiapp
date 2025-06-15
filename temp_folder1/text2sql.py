@@ -30,21 +30,36 @@ def load_csv():
     return rows
 
 def group_semantic(rows):
-    prompt = {
-        "prompt": f"""
-You are an expert schema analyst. Given the following metadata list (JSON array), group Field Names into semantic clusters.  
-Respond in JSON as:
-[{{"topic": "...", "fields":[...], "description":"..."}}, ...]
-
-Metadata array:
-{json.dumps(rows[:100])}
-""",
-        "modelId": CLAUDE_MODEL,
-        "contentType": "application/json"
+    # Construct conversation payload for Claude
+    request_body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 1024,
+        "temperature": 0.2,
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "You are an expert schema analyst. "
+                    "Given the following metadata list (JSON array), group "
+                    "Field Names into semantic clusters and return JSON "
+                    "[{\"topic\":\"...\",\"fields\":[...],\"description\":\"...\"}, ...].\n\n"
+                    f"Metadata=\n{json.dumps(rows, indent=2)}"
+                )
+            }
+        ]
     }
-    resp = bedrock.invoke_model(**prompt)
-    grouped = json.loads(resp["body"].read())
-    logger.info(f"Grouped into {len(grouped)} topics via Claude")
+
+    # Correct Bedrock invocation
+    response = bedrock.invoke_model(
+        modelId=CLAUDE_MODEL,
+        body=json.dumps(request_body),
+        contentType="application/json",
+        accept="application/json"
+    )
+
+    result_body = response["body"].read()
+    grouped = json.loads(result_body)
+    logger.info(f"Received {len(grouped)} semantic groups from Claude")
     return grouped
 
 def chunk_embeddings(groups):
