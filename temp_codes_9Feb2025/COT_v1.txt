@@ -1,0 +1,213 @@
+High-Level Approach:
+-------------------
+1. Capture User Query: Capture user question from the existing streamlit app.
+2. Define Thinking Stages: Map thoughts to your pipeline steps (query enrichment, metadata retrieval, S3 data fetch, Claude response generation, response display).
+3. Stream Thoughts in Streamlit: Use Streamlit’s st.empty() and st.write() to dynamically update a "Thinking" section with thoughts as each stage executes.
+4. Integrate with Existing Pipeline: Modify your backend logic to yield thoughts for each stage while maintaining the existing AWS infrastructure (Knowledge Base, S3, Bedrock with Claude 3.5 Sonnet).
+5. Display Final Response: Render the structured JSON response (narratives, dataset, chart details) using Streamlit components (e.g., text, tables, charts).
+6. Optimize for Streamlit: Ensure smooth UI updates and handle errors gracefully.
+-------------------------------------------------------------------
+Define Thinking Stages: Map thoughts to your pipeline’s steps:
+
+* Query Enrichment: Enrich the user question using mapping data.
+Thought: "Enriching your query with additional context from mapping data…"
+* Metadata Retrieval: Fetch metadata (attributes, group by, filters, S3 URIs) from AWS Knowledge Base using retrieve_and_generate.
+Thought: "Retrieving metadata from the Knowledge Base for relevant datasets…"
+* S3 Data Fetch: Retrieve actual data from S3 using the metadata’s S3 URIs.
+Thought: "Fetching data from S3 based on the identified dataset…"
+* Prompt Preparation & Claude Response: Prepare the final prompt and send to Claude 3.5 Sonnet for structured JSON (narratives, dataset, chart details).
+Thought: "Generating narrative, table, and chart details with Claude 3.5 Sonnet…"
+* Response Display: Render the response on the screen.
+Thought: "Preparing the final response for display…"
+-------------------------------------------------------------------
+
+Modify Backend to Yield Thoughts:
+--------------------------------
+Update your backend logic to yield thoughts for each stage. Since Streamlit runs Python scripts top-to-bottom, we’ll use a generator function to yield thoughts and integrate it with Streamlit’s UI updates.
+
+* Backend Pipeline (Sample):
+- Create a generator function that yields thoughts and processes the query.
+Example:
+import boto3
+import pandas as pd
+import json
+import time
+
+def process_query_with_thoughts(query: str):
+    # Stage 1: Query Enrichment
+    yield "Enriching your query with additional context from mapping data…"
+    enriched_query = enrich_query(query)
+    yield f"Enriched query: {enriched_query}"
+    time.sleep(0.5)  # Simulate processing time for UX
+
+    # Stage 2: Metadata Retrieval
+    yield "Retrieving metadata from the Knowledge Base for relevant datasets…"
+    metadata = fetch_metadata(enriched_query)
+    if not metadata:
+        yield "No relevant datasets found. Please clarify your query."
+        return
+    yield f"Found metadata for dataset with S3 URI: {metadata['s3_uri']}"
+    time.sleep(0.5)
+
+    # Stage 3: S3 Data Fetch
+    yield "Fetching data from S3 based on the identified dataset…"
+    data = fetch_s3_data(metadata['s3_uri'])
+    if data is None:
+        yield "Failed to retrieve data from S3."
+        return
+    yield "Data retrieved successfully."
+    time.sleep(0.5)
+
+    # Stage 4: Prompt Preparation & Claude Response
+    yield "Generating narrative, table, and chart details with Claude 3.5 Sonnet…"
+    response = generate_claude_response(data, query, metadata)
+    yield "Response generated successfully."
+    time.sleep(0.5)
+
+    # Stage 5: Return Final Response
+    yield "Preparing the final response for display…"
+    yield f"FINAL_RESPONSE:{json.dumps(response)}"
+
+-----------------------------------------------------------------------------
+
+Stream Thoughts in Streamlit:
+----------------------------
+Use Streamlit’s st.empty() to create a placeholder for thoughts and update it dynamically as thoughts are yielded.
+
+Streamlit Integration:
+Iterate over the generator to display thoughts and capture the final response.
+Use a plotting library (e.g., Plotly) to render charts based on the chart details.
+Example:
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import json
+
+# Initialize session state for query submission
+if 'submitted' not in st.session_state:
+    st.session_state.submitted = False
+    st.session_state.query = ""
+
+# Form for query input
+with st.form(key="query_form"):
+    query = st.text_input("Enter your question:", placeholder="e.g., Show sales in 2024 by region")
+    submit_button = st.form_submit_button("Ask")
+
+if submit_button and query:
+    st.session_state.submitted = True
+    st.session_state.query = query
+
+if st.session_state.submitted and st.session_state.query:
+    # Create a placeholder for thoughts
+    thinking_placeholder = st.empty()
+    thoughts = []
+
+    # Process query and display thoughts
+    with thinking_placeholder.container():
+        st.write("**Thinking…**")
+        for thought in process_query_with_thoughts(st.session_state.query):
+            if thought.startswith("FINAL_RESPONSE:"):
+                # Parse final response
+                response = json.loads(thought.replace("FINAL_RESPONSE:", ""))
+                st.session_state.response = response
+                break
+            thoughts.append(thought)
+            # Update thoughts display
+            st.write("\n".join(thoughts))
+            time.sleep(0.1)  # Small delay for smooth UI updates
+
+    # Display final response
+    if 'response' in st.session_state:
+        response = st.session_state.response
+        st.write("**Response**")
+        
+        # Narrative
+        st.write("### Narrative")
+        st.write(response.get('narrative', 'No narrative provided.'))
+
+        # Dataset (Table)
+        st.write("### Table")
+        dataset = response.get('dataset', [])
+        if dataset:
+            df = pd.DataFrame(dataset)
+            st.dataframe(df)
+        else:
+            st.write("No table data provided.")
+
+        # Chart
+        st.write("### Chart")
+        chart = response.get('chart', {})
+        if chart:
+            if chart['type'].lower() == 'bar':
+                fig = px.bar(
+                    df,
+                    x=chart['x_axis'],
+                    y=chart['y_axis'],
+                    title=chart['title']
+                )
+                st.plotly_chart(fig)
+            else:
+                st.write(f"Chart type '{chart['type']}' not supported yet.")
+        else:
+            st.write("No chart provided.")
+
+    # Reset for next query
+    st.session_state.submitted = False
+
+------------------------------------------------------------------------
+
+UI Design:
+---------
+* Use st.empty() to manage the "Thinking" section, updating it with each new thought.
+* Display thoughts as a growing list or concatenated text for simplicity.
+* Render the final response in separate sections for narrative, table, and chart.
+* Use Plotly for charts (supports bar, line, etc.) based on the chart JSON (e.g., x_axis, y_axis, type).
+------------------------------------------------------------------
+
+Optimize for Streamlit: Ensure a smooth experience in Streamlit’s single-threaded environment:
+
+* Avoid Blocking:
+The time.sleep(0.1) in the Streamlit loop ensures UI updates are visible but keeps the app responsive.
+------------------------------------------------------------------
+Error Handling: Handle errors at each stage and display them as thoughts:
+
+* Query Enrichment: If mapping data is missing, yield: "Unable to enrich query due to missing mapping data."
+* Metadata Retrieval: If retrieve_and_generate fails, yield: "Failed to fetch metadata from Knowledge Base. Please try again."
+* S3 Data Fetch: Retry failed S3 calls and yield: "Error fetching data from S3. Retrying…"
+Example:
+def fetch_s3_data(s3_uri: str) -> pd.DataFrame:
+    s3_client = boto3.client('s3')
+    bucket, key = s3_uri.replace("s3://", "").split("/", 1)
+    for attempt in range(3):
+        try:
+            obj = s3_client.get_object(Bucket=bucket, Key=key)
+            return pd.read_csv(obj['Body'])
+        except Exception as e:
+            yield f"Error fetching S3 data (attempt {attempt+1}/3): {e}"
+            time.sleep(1)
+    yield "Failed to retrieve data from S3 after 3 attempts."
+    return None
+* Claude Response: If Claude fails, yield: "Error generating response with Claude. Please try again."
+* Streamlit Fallback: If any stage fails, display an error message in the UI and allow the user to resubmit.
+
+------------------------------------------------------------------
+
+* Example User Interaction
+User Submits: "Show sales in 2024 by region"
+Thinking Section (updated in real-time):
+
+* "Enriching your query with additional context from mapping data…"
+* "Enriched query: Show sales_data_table in year=2024 by region"
+* "Retrieving metadata from the Knowledge Base for relevant datasets…"
+* "Found metadata for dataset with S3 URI: s3://bucket/sales_2024.csv"
+* "Fetching data from S3 based on the identified dataset…"
+* "Data retrieved successfully."
+* "Generating narrative, table, and chart details with Claude 3.5 Sonnet…"
+* "Response generated successfully."
+* "Preparing the final response for display…"
+
+Final Response:
+
+* Narrative: "In 2024, total sales reached $1.2M, with the West region leading at $500K."
+* Table: [DataFrame showing sales by region]
+* Chart: [Plotly bar chart with x_axis: region, y_axis: sales, title: Sales by Region in 2024]
