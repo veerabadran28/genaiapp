@@ -1,0 +1,57 @@
+import os
+import anthropic
+
+# The client will automatically pick up the API key from the environment variable
+# export ANTHROPIC_API_KEY="your-api-key-here"
+try:
+    client = anthropic.Anthropic()
+except Exception as e:
+    print(f"Failed to initialize Anthropic client. Is ANTHROPIC_API_KEY set? Error: {e}")
+    exit()
+
+# --- Prepare your 1M token prompt ---
+# This is where you would load your very large document.
+# In a real scenario, you would read this from a file, database, etc.
+# Note: Ensure your organization is eligible for the 1M token beta.
+print("Preparing a large prompt (simulated for 1M token context)...")
+# This is just a simulation. You would replace this with your actual large text.
+large_prompt_text = "This is the start of a very long document... [imagine 900,000+ tokens of text here] ...this is the end."
+print("Prompt prepared.")
+
+# --- Call the Messages API with the BETA HEADER ---
+try:
+    print("Sending request to Anthropic API with 1M token header...")
+    message = client.messages.create(
+        model="claude-sonnet-4.5",  # Or another eligible model like claude-sonnet-4
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": large_prompt_text
+            }
+        ],
+        # THIS IS THE CRITICAL PART FOR 1M TOKEN BETA ACCESS
+        headers={
+            "anthropic-beta": "context-1m-2025-08-07"
+        }
+    )
+
+    # --- Process the response ---
+    generated_text = message.content[0].text
+    
+    print("\n--- Model Response ---")
+    print(generated_text)
+    
+    # Print usage stats
+    input_tokens = message.usage.input_tokens
+    output_tokens = message.usage.output_tokens
+    print(f"\n--- Usage ---")
+    print(f"Input Tokens: {input_tokens}")
+    print(f"Output Tokens: {output_tokens}")
+    
+except anthropic.APIError as e:
+    print(f"An Anthropic API error occurred: {e}")
+    # This error could indicate you are not authorized for the beta,
+    # or you have exceeded rate limits specific to long-context requests.
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
