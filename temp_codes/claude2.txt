@@ -1,0 +1,72 @@
+import boto3
+import json
+
+# Initialize the Bedrock Runtime client
+# Ensure your AWS credentials are configured and you are using a region
+# where the model is available.
+bedrock_runtime = boto3.client(
+    service_name='bedrock-runtime', 
+    region_name='us-east-1'
+)
+
+# --- Define the Model ID for Bedrock ---
+# The exact model ID may vary slightly. Check the AWS Bedrock console for the
+# precise ID for Claude Sonnet 4.5.
+model_id = 'anthropic.claude-sonnet-4-5-20250807-v1:0' # Example model ID
+
+# --- Prepare your 1M token prompt ---
+# This is where you would load your large document.
+print("Preparing a large prompt (simulated for 1M token context)...")
+large_prompt_text = "This is the start of a very long document... [imagine 900,000+ tokens of text here] ...this is the end."
+print("Prompt prepared.")
+
+# --- Construct the request body for Bedrock ---
+# Note the addition of the "anthropic_beta" key.
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    # THIS IS THE CRITICAL PART FOR BEDROCK BETA ACCESS
+    "anthropic_beta": "context-1m-2025-08-07",
+    "max_tokens": 4096,
+    "messages": [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": large_prompt_text
+                }
+            ]
+        }
+    ]
+})
+
+# --- Invoke the model ---
+try:
+    print(f"Invoking model {model_id} via Bedrock... (This may take a very long time)")
+    response = bedrock_runtime.invoke_model(
+        body=body,
+        modelId=model_id,
+        accept='application/json',
+        contentType='application/json'
+    )
+    
+    # --- Process the response ---
+    response_body = json.loads(response.get('body').read())
+    
+    # Extract the generated text
+    generated_text = response_body['content'][0]['text']
+    
+    print("\n--- Model Response ---")
+    print(generated_text)
+    
+    # Print usage stats
+    input_tokens = response_body['usage']['input_tokens']
+    output_tokens = response_body['usage']['output_tokens']
+    print(f"\n--- Usage ---")
+    print(f"Input Tokens: {input_tokens}")
+    print(f"Output Tokens: {output_tokens}")
+
+except Exception as e:
+    print(f"An error occurred: {e}")
+    # If you get a ValidationException or a similar error, it's likely that
+    # your account is not enabled for this specific model or beta feature.
