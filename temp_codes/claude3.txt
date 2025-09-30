@@ -1,0 +1,67 @@
+import boto3
+import json
+
+# Initialize the Bedrock Runtime client
+# Use a region where the Claude Sonnet 4 model is available
+bedrock_runtime = boto3.client(
+    service_name='bedrock-runtime', 
+    region_name='us-east-1' 
+)
+
+# Define the model ID for Claude Sonnet 4 on Bedrock
+# Note: Model IDs can be updated. Check the AWS Bedrock documentation for the latest.
+model_id = 'anthropic.claude-sonnet-4-v1:0'
+
+# --- Prepare your 1M token prompt ---
+# This is where you would load your large document.
+print("Preparing a large prompt (simulated for 1M token context)...")
+large_prompt_text = "This is the start of a very long document... [imagine 900,000+ tokens of text here] ...this is the end."
+print("Prompt prepared.")
+
+# --- Construct the request body with the BETA VERSION ---
+# For Bedrock, the beta feature is included as a key-value pair in the body.
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    "anthropic_beta": "context-1m-2025-08-07", # <--- THIS IS THE KEY LINE
+    "max_tokens": 4096,
+    "messages": [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": large_prompt_text
+                }
+            ]
+        }
+    ]
+})
+
+# --- Invoke the model ---
+try:
+    print("Invoking model with 1M token beta...")
+    response = bedrock_runtime.invoke_model(
+        body=body,
+        modelId=model_id,
+        accept='application/json',
+        contentType='application/json'
+    )
+    
+    # --- Process the response ---
+    response_body = json.loads(response.get('body').read())
+    
+    # Extract the generated text
+    generated_text = response_body['content'][0]['text']
+    
+    print("\n--- Model Response ---")
+    print(generated_text)
+    
+    # Print usage stats
+    input_tokens = response_body['usage']['input_tokens']
+    output_tokens = response_body['usage']['output_tokens']
+    print(f"\n--- Usage ---")
+    print(f"Input Tokens: {input_tokens}")
+    print(f"Output Tokens: {output_tokens}")
+
+except Exception as e:
+    print(f"An error occurred: {e}")
